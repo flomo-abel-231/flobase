@@ -419,7 +419,11 @@ func (m *Manager) Start(ctx context.Context) error {
 	if out, err := m.docker(ctx, "inspect", "-f", `{{index .Config.Labels "com.docker.compose.project"}}`, "flobase-control-plane"); err == nil && strings.TrimSpace(out) != project {
 		_, _ = m.docker(ctx, "rm", "flobase-control-plane", "flobase-gateway")
 	}
-	m.step("Starting FloBase %s (the first start downloads about 1 GB)", m.Env()["FLOBASE_VERSION"])
+	if out, _ := m.docker(ctx, "image", "ls", "-q", "ghcr.io/flomo-abel-231/flobase"); strings.TrimSpace(out) == "" {
+		m.step("Starting FloBase %s (downloading about 1 GB the first time)", m.Env()["FLOBASE_VERSION"])
+	} else {
+		m.step("Starting FloBase %s", m.Env()["FLOBASE_VERSION"])
+	}
 	if _, err := m.compose(ctx, "up", "-d", "--remove-orphans"); err != nil {
 		return err
 	}
@@ -575,8 +579,11 @@ func (m *Manager) Uninstall(ctx context.Context, everything bool) error {
 	if everything {
 		args = append(args, "--volumes")
 	}
-	if _, err := m.compose(ctx, args...); err != nil {
-		return err
+	// Set up but never started: there is nothing for Compose to remove.
+	if _, err := os.Stat(filepath.Join(m.Dir, "docker-compose.yml")); err == nil {
+		if _, err := m.compose(ctx, args...); err != nil {
+			return err
+		}
 	}
 	if everything {
 		m.removeOwnEngine(ctx)

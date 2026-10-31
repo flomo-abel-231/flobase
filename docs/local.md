@@ -17,7 +17,7 @@ FloBase's projects are real Postgres, MySQL and MongoDB-compatible databases run
 
 | System | Already have Docker? | No Docker |
 | --- | --- | --- |
-| macOS | Docker Desktop or OrbStack is used and started as needed | FloBase installs its own engine for your user: [Colima](https://github.com/abiosoft/colima) on [Lima](https://lima-vm.io) with Apple's Virtualization framework, plus the Docker CLI and Compose, in `~/.flobase/runtime`. No admin password, no Docker Desktop licence. Needs macOS 13 or later. |
+| macOS | Docker Desktop or OrbStack is used and started as needed | FloBase installs its own engine for your user: [Colima](https://github.com/abiosoft/colima) on [Lima](https://lima-vm.io) with Apple's Virtualization framework, plus the Docker CLI and Compose. The programs go in `~/.flobase/runtime` and the VM in `~/.colima/flobase`. No admin password, no Docker Desktop licence, and your own `docker` command keeps pointing where it did. Needs macOS 13 or later. |
 | Windows | Docker Desktop is used and started as needed | FloBase installs WSL 2, then [Docker Desktop](https://www.docker.com/products/docker-desktop/) with `winget`. Windows asks for administrator rights, and once for a restart after WSL is installed. |
 | Linux | Docker Engine is used | FloBase installs Docker Engine with [Docker's script](https://get.docker.com), asking for your sudo password, and adds you to the `docker` group (sign out and in once). |
 
@@ -77,7 +77,7 @@ The script checks the download's checksum, installs `flobase` (to `~/.local/bin`
 - Project APIs: `http://localhost:8000/project/<ref>`, for the Supabase client libraries.
 - Direct and pooled database connections: shown on each project's **Configuration → Connect** page.
 
-Files live in `~/.flobase` (`%USERPROFILE%\.flobase` on Windows): the release's `docker-compose.yml`, `.env` with your secrets, and on macOS the engine FloBase installed. Set `FLOBASE_LOCAL_DIR` to use another folder.
+Files live in `~/.flobase` (`%USERPROFILE%\.flobase` on Windows): the release's `docker-compose.yml`, `.env` with your secrets, and on macOS the engine's programs. On macOS FloBase's engine VM lives in `~/.colima/flobase`; `flobase stop` shuts it down to give its memory back, and `flobase uninstall --all` deletes it with its data disk and download cache. Set `FLOBASE_LOCAL_DIR` to use another folder.
 
 ## Updates
 

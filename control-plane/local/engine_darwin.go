@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,8 +14,9 @@ import (
 )
 
 // macOS: FloBase's own engine is Colima on Lima with Apple's Virtualization
-// framework (macOS 13+), in ~/.flobase/runtime. Versions are pinned and
-// checksums verified.
+// framework (macOS 13+). The programs live in ~/.flobase/runtime; Colima
+// keeps the VM itself in ~/.colima/flobase, its fixed location. Versions
+// are pinned and checksums verified.
 const (
 	colimaVersion  = "0.10.3"
 	limaVersion    = "2.2.1"
@@ -33,11 +35,33 @@ func (m *Manager) useOwnEngine() {
 		return
 	}
 	m.ownEngine = true
+	home, _ := os.UserHomeDir()
+	m.setOwnEngineEnv("unix://" + filepath.Join(home, ".colima", colimaProfile, "docker.sock"))
+}
+
+func (m *Manager) setOwnEngineEnv(dockerHost string) {
+	rt := m.runtimeDir()
 	m.dockerEnv = []string{
 		"PATH=" + filepath.Join(rt, "bin") + ":" + os.Getenv("PATH"),
-		"COLIMA_HOME=" + filepath.Join(rt, "colima"),
 		"DOCKER_CONFIG=" + filepath.Join(rt, "docker-config"),
-		"DOCKER_HOST=unix://" + filepath.Join(rt, "colima", colimaProfile, "docker.sock"),
+		"DOCKER_HOST=" + dockerHost,
+	}
+}
+
+// refreshSocket asks Colima where its Docker socket is, rather than
+// assuming the default location.
+func (m *Manager) refreshSocket(ctx context.Context) {
+	cmd := exec.CommandContext(ctx, filepath.Join(m.runtimeDir(), "bin", "colima"), "status", "--profile", colimaProfile, "--json")
+	cmd.Env = append(os.Environ(), m.dockerEnv...)
+	out, err := cmd.Output()
+	if err != nil {
+		return
+	}
+	var st struct {
+		DockerSocket string `json:"docker_socket"`
+	}
+	if json.Unmarshal(out, &st) == nil && st.DockerSocket != "" {
+		m.setOwnEngineEnv(st.DockerSocket)
 	}
 }
 
@@ -154,11 +178,23 @@ func (m *Manager) startOwnEngine(ctx context.Context) error {
 			memGB = 6
 		}
 	}
-	m.step("Starting FloBase's Docker engine (%d CPUs, %d GB); the first start takes a few minutes", cpus, memGB)
+	home, _ := os.UserHomeDir()
+	if _, err := os.Stat(filepath.Join(home, ".colima", colimaProfile)); err != nil {
+		m.step("Creating FloBase's Docker engine (%d CPUs, %d GB); this takes a few minutes once", cpus, memGB)
+	} else {
+		m.step("Starting FloBase's Docker engine")
+	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
-	return m.colima(ctx, "start", "--vm-type", "vz", "--mount-type", "virtiofs",
-		"--cpu", strconv.Itoa(cpus), "--memory", strconv.Itoa(memGB), "--disk", "60")
+	if err := m.colima(ctx, "start", "--vm-type", "vz", "--mount-type", "virtiofs",
+		"--cpu", strconv.Itoa(cpus), "--memory", strconv.Itoa(memGB), "--disk", "60"); err != nil {
+		return err
+	}
+	m.refreshSocket(ctx)
+	if !m.waitEngine(ctx, 2*time.Minute) {
+		return &ErrNoDocker{Detail: "FloBase's Docker engine started but does not answer; run `flobase logs` or delete ~/.flobase/runtime to reinstall it"}
+	}
+	return nil
 }
 
 func (m *Manager) stopOwnEngine(ctx context.Context) error {
@@ -169,9 +205,31 @@ func (m *Manager) stopOwnEngine(ctx context.Context) error {
 	return m.colima(ctx, "stop")
 }
 
-// removeOwnEngine deletes FloBase's VM before its files go.
+// removeOwnEngine deletes FloBase's VM and its data disk before FloBase's
+// files go, and ~/.colima too when no other Colima profile uses it.
 func (m *Manager) removeOwnEngine(ctx context.Context) {
-	if m.ownEngine {
-		_ = m.colima(ctx, "delete", "--force")
+	if !m.ownEngine {
+		return
+	}
+	_ = m.colima(ctx, "delete", "--force", "--data")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".colima")
+	inUse := func(path string) bool {
+		entries, _ := os.ReadDir(path)
+		for _, e := range entries {
+			if !strings.HasPrefix(e.Name(), "_") && e.Name() != "ssh_config" {
+				return true // another profile or Lima instance
+			}
+		}
+		return false
+	}
+	disks, _ := os.ReadDir(filepath.Join(dir, "_lima", "_disks"))
+	if !inUse(dir) && !inUse(filepath.Join(dir, "_lima")) && len(disks) == 0 {
+		_ = os.RemoveAll(dir)
+		// Colima's download cache of the VM image, about 350 MB.
+		_ = os.RemoveAll(filepath.Join(home, "Library", "Caches", "colima"))
 	}
 }
