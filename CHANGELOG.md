@@ -2,6 +2,14 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## 0.2.0 — unreleased
+
+- FloBase Desktop for macOS (one app for Intel and Apple silicon M1–M4) and Windows (x64 installer, ARM64 app).
+- `flobase` CLI for macOS, Windows and Linux on x64 and ARM64: `setup`, `start`, `stop`, `status`, `open`, `logs`, `update`, `uninstall`.
+- Both install what FloBase needs on first start: on macOS its own Docker engine (Colima, no admin rights), on Windows WSL 2 and Docker Desktop, on Linux Docker Engine.
+- The dashboard signs in from a link the CLI and desktop app open, without asking for the token.
+- Releases build the CLI and desktop apps and publish only when every file is attached.
+
 ## 0.1.1 — 2026-10-31
 
 - README shows CI, latest-release and licence badges.

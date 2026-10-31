@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FloBase</title>
+    <style>
+      /* FloBase design tokens (packages/design-system/tokens.css), inlined so
+         the app works offline. */
+      :root {
+        --surface: #faf7f4; --surface-raised: #ffffff; --surface-sunken: #f2ede8;
+        --border: #e2dad2; --border-strong: #80746a; --ink: #1c1612; --ink-muted: #5e544c;
+        --brand: #b0581f; --on-brand: #ffffff; --brand-subtle: #f7e7d9;
+        --success: #1d7a4a; --warning: #7a5a00; --danger: #b42318;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --surface: #141110; --surface-raised: #1d1916; --surface-sunken: #0e0c0b;
+          --border: #332c27; --border-strong: #7d7168; --ink: #f3eee9; --ink-muted: #a89c92;
+          --brand: #f4ad6c; --on-brand: #1f1208; --brand-subtle: #3e2717;
+          --success: #5bd496; --warning: #f0c054; --danger: #ff8a7a;
+          color-scheme: dark;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--surface); color: var(--ink);
+        font: 400 14px/20px -apple-system, "Segoe UI", system-ui, sans-serif;
+        -webkit-user-select: none; user-select: none;
+      }
+      main { display: flex; flex-direction: column; gap: 16px; padding: 24px; max-width: 720px; margin: 0 auto; }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 18px; }
+      .mark { width: 28px; height: 28px; border-radius: 8px; background: var(--brand); display: grid; place-items: center; }
+      .mark svg { width: 18px; height: 18px; }
+      .muted { color: var(--ink-muted); }
+      .mono { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 13px; }
+      .box { border: 1px solid var(--border); background: var(--surface-raised); border-radius: 8px; }
+      .status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; }
+      .state { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16px; }
+      .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border-strong); }
+      .dot.running { background: var(--success); }
+      .dot.busy { background: var(--warning); animation: pulse 1.2s infinite; }
+      .dot.failed { background: var(--danger); }
+      @keyframes pulse { 50% { opacity: 0.35; } }
+      .rows { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; padding: 12px 16px; border-top: 1px solid var(--border); }
+      .rows span:nth-child(odd) { color: var(--ink-muted); font-size: 12px; font-weight: 500; }
+      .rows .mono { -webkit-user-select: text; user-select: text; overflow-wrap: anywhere; }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+      button {
+        height: 32px; padding: 0 12px; border-radius: 4px; font: 500 13px/1 inherit; cursor: pointer;
+        border: 1px solid var(--border-strong); background: var(--surface-raised); color: var(--ink);
+      }
+      button:hover { background: var(--surface-sunken); }
+      button.primary { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+      button.primary:hover { opacity: 0.9; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+      .progress { padding: 12px 16px; max-height: 160px; overflow: auto; }
+      .progress p { margin: 0 0 4px; }
+      .progress p:last-child { color: var(--ink); }
+      .notice { padding: 12px 16px; border-radius: 6px; border: 1px solid; white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
+      .notice.danger { border-color: var(--danger); color: var(--danger); background: var(--surface-raised); }
+      .notice.warning { border-color: var(--warning); color: var(--warning); background: var(--surface-raised); }
+      pre.logs { margin: 0; padding: 12px; max-height: 220px; overflow: auto; background: var(--surface-sunken); white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
+      [hidden] { display: none !important; }
+      footer { font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="brand">
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="10 9 13 15"><path d="M10 9h13v3.5h-9v3h7.5V19H14v5h-4z" fill="var(--on-brand)" /></svg>
+          </span>
+          FloBase
+        </div>
+        <span class="muted mono" id="version"></span>
+      </header>
+
+      <section class="box" aria-live="polite">
+        <div class="status">
+          <div class="state"><span class="dot" id="dot" aria-hidden="true"></span><span id="state">Checking…</span></div>
+          <div class="actions">
+            <button class="primary" id="open" hidden>Open dashboard</button>
+            <button class="primary" id="start" hidden>Start</button>
+          </div>
+        </div>
+        <div class="rows" id="details" hidden>
+          <span>Dashboard</span><span class="mono" id="dashboard"></span>
+          <span>Project APIs</span><span class="mono" id="gateway"></span>
+          <span>Files</span><span class="mono" id="dir"></span>
+        </div>
+      </section>
+
+      <div class="notice danger" id="error" role="alert" hidden></div>
+      <div class="notice warning" id="restart" role="alert" hidden></div>
+
+      <section class="box progress muted" id="progress" hidden></section>
+
+      <div class="actions">
+        <button id="token">Copy API token</button>
+        <button id="update">Check for updates</button>
+        <button id="logsBtn">Show logs</button>
+        <button id="folder">Open files folder</button>
+        <button id="stop">Stop FloBase</button>
+      </div>
+      <pre class="logs mono box" id="logs" hidden></pre>
+
+      <footer class="muted">
+        FloBase keeps running after you close this window. Stop it here to give its memory back.
+        <a href="#" id="docs" style="color: var(--brand)">Guide</a>
+      </footer>
+    </main>
+
+    <script>
+      const app = () => window.go.main.App;
+      const $ = (id) => document.getElementById(id);
+      let busy = "";
+
+      function render(s) {
+        const running = s && s.running;
+        $("dot").className = "dot " + (busy ? "busy" : running ? "running" : "");
+        $("state").textContent = busy
+          ? { start: "Starting…", stop: "Stopping…", update: "Updating…" }[busy] || "Working…"
+          : running ? "Running" : s && s.installed ? "Stopped" : "Not set up yet";
+        $("open").hidden = !running || !!busy;
+        $("start").hidden = running || !!busy;
+        $("stop").disabled = !running || !!busy;
+        $("update").disabled = !!busy;
+        $("token").disabled = !(s && s.installed);
+        $("details").hidden = !(s && s.installed);
+        if (s) {
+          $("dashboard").textContent = s.dashboard_url || "";
+          $("gateway").textContent = s.gateway_url || "";
+          $("dir").textContent = s.dir || "";
+        }
+      }
+
+      function progress(line) {
+        const box = $("progress");
+        box.hidden = false;
+        const p = document.createElement("p");
+        p.textContent = line;
+        box.appendChild(p);
+        box.scrollTop = box.scrollHeight;
+      }
+
+      async function refresh() { render(await app().Status()); }
+
+      window.addEventListener("load", async () => {
+        $("version").textContent = "v" + (await app().Version());
+        window.runtime.EventsOn("busy", (name) => { busy = name; $("error").hidden = true; refresh(); });
+        window.runtime.EventsOn("progress", progress);
+        window.runtime.EventsOn("status", (s) => { busy = ""; render(s); });
+        window.runtime.EventsOn("failed", (msg) => { $("error").textContent = msg; $("error").hidden = false; });
+        window.runtime.EventsOn("restart", (msg) => { $("restart").textContent = msg; $("restart").hidden = false; });
+        $("open").onclick = () => app().OpenDashboard();
+        $("start").onclick = () => app().Start();
+        $("stop").onclick = () => app().Stop();
+        $("update").onclick = () => app().Update();
+        $("folder").onclick = () => app().OpenFolder();
+        $("docs").onclick = (e) => { e.preventDefault(); app().OpenURL("https://github.com/flomo-abel-231/flobase/blob/main/docs/local.md"); };
+        $("token").onclick = async () => {
+          await window.runtime.ClipboardSetText(await app().Token());
+          $("token").textContent = "Copied";
+          setTimeout(() => ($("token").textContent = "Copy API token"), 1500);
+        };
+        $("logsBtn").onclick = async () => {
+          const box = $("logs");
+          if (!box.hidden) { box.hidden = true; $("logsBtn").textContent = "Show logs"; return; }
+          try { box.textContent = await app().Logs(); } catch (e) { box.textContent = String(e); }
+          box.hidden = false; $("logsBtn").textContent = "Hide logs";
+          box.scrollTop = box.scrollHeight;
+        };
+        refresh();
+        setInterval(() => { if (!busy) refresh(); }, 5000);
+      });
+    </script>
+  </body>
+</html>
