@@ -1,0 +1,72 @@
+# Self-hosted FloBase on one machine: the control plane (API + dashboard)
+# and its own Postgres. Project databases are started next to it on the
+# same Docker host. Copy .env.example to .env first.
+
+name: flobase
+
+services:
+  platform-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flobase
+      POSTGRES_PASSWORD: ${FLOBASE_PLATFORM_DB_PASSWORD:?set it in .env}
+      POSTGRES_DB: flobase
+    volumes:
+      - platform-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flobase -d flobase"]
+      interval: 2s
+      retries: 30
+
+  flobase:
+    build:
+      context: .
+      args:
+        VERSION: ${FLOBASE_VERSION:-0.1.0}
+    image: flobase/flobase:${FLOBASE_VERSION:-0.1.0}
+    container_name: flobase-control-plane
+    restart: unless-stopped
+    depends_on:
+      platform-db:
+        condition: service_healthy
+    environment:
+      FLOBASE_MODE: ${FLOBASE_MODE:-self-hosted}
+      FLOBASE_API_TOKEN: ${FLOBASE_API_TOKEN:?set it in .env}
+      FLOBASE_DATABASE_URL: postgres://flobase:${FLOBASE_PLATFORM_DB_PASSWORD}@platform-db:5432/flobase
+      FLOBASE_PUBLIC_HOST: ${FLOBASE_PUBLIC_HOST:-localhost}
+      FLOBASE_MARKUP: ${FLOBASE_MARKUP:-1.6}
+      FLOBASE_GATEWAY_URL: ${FLOBASE_GATEWAY_URL:-http://localhost:8000}
+      FLOBASE_ATTACH: flobase-control-plane,flobase-gateway
+      # Off-site backup copies; leave the bucket empty to keep backups on this machine only.
+      FLOBASE_BACKUP_S3_ENDPOINT: ${FLOBASE_BACKUP_S3_ENDPOINT:-}
+      FLOBASE_BACKUP_S3_REGION: ${FLOBASE_BACKUP_S3_REGION:-}
+      FLOBASE_BACKUP_S3_BUCKET: ${FLOBASE_BACKUP_S3_BUCKET:-}
+      FLOBASE_BACKUP_S3_PREFIX: ${FLOBASE_BACKUP_S3_PREFIX:-}
+      FLOBASE_BACKUP_S3_ACCESS_KEY: ${FLOBASE_BACKUP_S3_ACCESS_KEY:-}
+      FLOBASE_BACKUP_S3_SECRET_KEY: ${FLOBASE_BACKUP_S3_SECRET_KEY:-}
+      FLOBASE_BACKUP_ENCRYPTION_KEY: ${FLOBASE_BACKUP_ENCRYPTION_KEY:-}
+    ports:
+      - "${FLOBASE_PORT:-8080}:8080"
+    volumes:
+      # The provisioner creates project databases through the Docker API.
+      # Anyone with this socket controls the host: keep the API token secret.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # Routes each project's REST, auth and GraphQL APIs and checks API keys.
+  # It only reads the platform database and never sits behind the control plane.
+  gateway:
+    image: flobase/flobase:${FLOBASE_VERSION:-0.1.0}
+    container_name: flobase-gateway
+    restart: unless-stopped
+    entrypoint: ["flobase-gateway"]
+    depends_on:
+      flobase:
+        condition: service_started
+    environment:
+      FLOBASE_DATABASE_URL: postgres://flobase:${FLOBASE_PLATFORM_DB_PASSWORD}@platform-db:5432/flobase
+    ports:
+      - "${FLOBASE_GATEWAY_PORT:-8000}:8000"
+
+volumes:
+  platform-db:

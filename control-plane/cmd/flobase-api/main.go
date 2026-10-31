@@ -1,0 +1,171 @@
+// Command flobase-api runs the FloBase control plane: the HTTP API, the
+// provisioner and, when FLOBASE_DASHBOARD_DIR is set, the built dashboard.
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"flobase/control-plane/internal/api"
+	"flobase/control-plane/internal/catalog"
+	"flobase/control-plane/internal/provisioner"
+	"flobase/control-plane/internal/store"
+)
+
+var version = "dev"
+
+func env(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func main() {
+	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	if err := run(log); err != nil {
+		log.Error("fatal", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run(log *slog.Logger) error {
+	mode := env("FLOBASE_MODE", "self-hosted")
+	if mode != "self-hosted" && mode != "cloud" {
+		return errors.New("FLOBASE_MODE must be self-hosted or cloud")
+	}
+	token := os.Getenv("FLOBASE_API_TOKEN")
+	if len(token) < 16 {
+		return errors.New("FLOBASE_API_TOKEN must be set to at least 16 characters")
+	}
+	markup, err := strconv.ParseFloat(env("FLOBASE_MARKUP", "1.6"), 64)
+	if err != nil {
+		return errors.New("FLOBASE_MARKUP must be a number such as 1.6")
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	st, err := store.Open(ctx, env("FLOBASE_DATABASE_URL", "postgres://flobase:flobase@localhost:5433/flobase"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	regions := []catalog.Region{catalog.LocalRegion}
+	if mode == "cloud" {
+		regions = append(regions, catalog.CloudRegions...)
+	}
+	if err := st.SeedRegions(ctx, regions); err != nil {
+		return err
+	}
+	if err := st.FailInterrupted(ctx); err != nil {
+		return err
+	}
+
+	// In Docker Compose the control plane and gateway join each project's
+	// network to reach its services by name.
+	var attach []string
+	for _, name := range strings.Split(os.Getenv("FLOBASE_ATTACH"), ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			attach = append(attach, name)
+		}
+	}
+	// Off-site backup copies are on when a bucket and keys are set.
+	var offsite *provisioner.Offsite
+	if os.Getenv("FLOBASE_BACKUP_S3_BUCKET") != "" {
+		offsite = &provisioner.Offsite{
+			Endpoint:      env("FLOBASE_BACKUP_S3_ENDPOINT", "https://s3.amazonaws.com"),
+			Region:        env("FLOBASE_BACKUP_S3_REGION", "us-east-1"),
+			Bucket:        os.Getenv("FLOBASE_BACKUP_S3_BUCKET"),
+			Prefix:        os.Getenv("FLOBASE_BACKUP_S3_PREFIX"),
+			AccessKey:     os.Getenv("FLOBASE_BACKUP_S3_ACCESS_KEY"),
+			SecretKey:     os.Getenv("FLOBASE_BACKUP_S3_SECRET_KEY"),
+			EncryptionKey: os.Getenv("FLOBASE_BACKUP_ENCRYPTION_KEY"),
+		}
+		if offsite.AccessKey == "" || offsite.SecretKey == "" {
+			return errors.New("FLOBASE_BACKUP_S3_BUCKET is set, so FLOBASE_BACKUP_S3_ACCESS_KEY and FLOBASE_BACKUP_S3_SECRET_KEY must be too")
+		}
+	}
+	docker := provisioner.NewDocker(env("FLOBASE_DOCKER_SOCKET", "/var/run/docker.sock"), env("FLOBASE_PUBLIC_HOST", "localhost"), attach, offsite)
+	if err := docker.Ping(ctx); err != nil {
+		return errors.New("cannot reach Docker at FLOBASE_DOCKER_SOCKET: " + err.Error())
+	}
+	projects, err := st.Projects(ctx)
+	if err != nil {
+		return err
+	}
+	for _, p := range projects {
+		if p.Status == store.StatusActive {
+			if err := docker.Attach(ctx, p.Ref); err != nil {
+				log.Warn("attach to project network", "ref", p.Ref, "err", err)
+			}
+		}
+	}
+
+	cfg := api.Config{
+		Mode: mode, Version: version, APIToken: token, Markup: markup,
+		GatewayURL: env("FLOBASE_GATEWAY_URL", "http://localhost:8000"),
+	}
+	if offsite != nil {
+		cfg.OffsiteBucket, cfg.OffsiteEncrypted = offsite.Bucket, offsite.EncryptionKey != ""
+		log.Info("off-site backups on", "bucket", offsite.Bucket, "encrypted", cfg.OffsiteEncrypted)
+	}
+	srv := api.New(cfg, st, docker, log)
+	deleting, err := st.Deleting(ctx)
+	if err != nil {
+		return err
+	}
+	for _, p := range deleting {
+		go srv.Teardown(p.Ref)
+	}
+	go srv.EnsureOffsiteAll(ctx)
+	go srv.RunBackups(ctx)
+
+	handler := srv.Routes()
+	if dir := os.Getenv("FLOBASE_DASHBOARD_DIR"); dir != "" {
+		handler = withDashboard(handler, dir)
+	}
+
+	addr := env("FLOBASE_ADDR", ":8080")
+	httpServer := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	errc := make(chan error, 1)
+	go func() { errc <- httpServer.ListenAndServe() }()
+	log.Info("FloBase control plane listening", "addr", addr, "mode", mode, "version", version)
+
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+	}
+	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return httpServer.Shutdown(shutdown)
+}
+
+// withDashboard serves the single-page dashboard, falling back to
+// index.html for client-side routes.
+func withDashboard(apiHandler http.Handler, dir string) http.Handler {
+	files := http.FileServer(http.Dir(dir))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			apiHandler.ServeHTTP(w, r)
+			return
+		}
+		path := filepath.Join(dir, filepath.Clean("/"+r.URL.Path))
+		if info, err := os.Stat(path); err != nil || info.IsDir() {
+			http.ServeFile(w, r, filepath.Join(dir, "index.html"))
+			return
+		}
+		files.ServeHTTP(w, r)
+	})
+}

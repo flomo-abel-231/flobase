@@ -1,0 +1,40 @@
+/* Tailwind CSS v4 entry: import this instead of "tailwindcss" in your app's CSS.
+   Gives utilities such as bg-surface-raised, text-ink-muted, border-border-strong,
+   bg-brand text-on-brand, rounded-lg, p-6, font-mono. */
+
+@import "tailwindcss";
+@import "./tokens.css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-brand: var(--brand);
+  --color-on-brand: var(--on-brand);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  /* Same values as tokens.css, written out so no theme variable refers to itself. */
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* Differs by theme, so it stays a variable; tokens.css (unlayered) supplies the value. */
+  --shadow-overlay: var(--shadow-overlay);
+
+  /* Tailwind's 4px spacing unit matches the grid: p-1 = 4px, p-6 = 24px, p-12 = 48px. */
+  --spacing: 4px;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "flobase",
+  "private": true,
+  "license": "Apache-2.0",
+  "workspaces": [
+    "dashboard",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w dashboard",
+    "build": "npm run build -w dashboard"
+  },
+  "overrides": {
+    "rollup": "4.40.0"
+  }
+}

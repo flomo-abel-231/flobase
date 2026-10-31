@@ -1,0 +1,105 @@
+/* FloBase design tokens. Light is the default; dark follows the OS
+   unless a page sets data-theme="light" or data-theme="dark" on <html>. */
+
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap");
+
+:root,
+[data-theme="light"] {
+  --surface: #faf7f4;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f2ede8;
+  --border: #e2dad2;
+  --border-strong: #80746a;
+  --ink: #1c1612;
+  --ink-muted: #5e544c;
+  --brand: #b0581f;
+  --on-brand: #ffffff;
+  --brand-subtle: #f7e7d9;
+  --accent: #0f6e6e;
+  --success: #1d7a4a;
+  --warning: #7a5a00;
+  --danger: #b42318;
+  --focus-ring: var(--brand);
+  --shadow-overlay: 0 8px 24px rgba(28, 22, 18, 0.12);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --surface: #141110;
+  --surface-raised: #1d1916;
+  --surface-sunken: #0e0c0b;
+  --border: #332c27;
+  --border-strong: #7d7168;
+  --ink: #f3eee9;
+  --ink-muted: #a89c92;
+  --brand: #f4ad6c;
+  --on-brand: #1f1208;
+  --brand-subtle: #3e2717;
+  --accent: #4cc9c0;
+  --success: #5bd496;
+  --warning: #f0c054;
+  --danger: #ff8a7a;
+  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: #141110;
+    --surface-raised: #1d1916;
+    --surface-sunken: #0e0c0b;
+    --border: #332c27;
+    --border-strong: #7d7168;
+    --ink: #f3eee9;
+    --ink-muted: #a89c92;
+    --brand: #f4ad6c;
+    --on-brand: #1f1208;
+    --brand-subtle: #3e2717;
+    --accent: #4cc9c0;
+    --success: #5bd496;
+    --warning: #f0c054;
+    --danger: #ff8a7a;
+    --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+
+:root {
+  --font-sans: "Geist", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+}
+
+body {
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 15px/22px var(--font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Type styles */
+.display { font: 600 48px/52px var(--font-sans); letter-spacing: -0.02em; }
+.h1 { font: 600 32px/38px var(--font-sans); letter-spacing: -0.01em; }
+.h2 { font: 600 24px/30px var(--font-sans); }
+.h3 { font: 600 18px/24px var(--font-sans); }
+.body { font: 400 15px/22px var(--font-sans); }
+.body-sm { font: 400 13px/18px var(--font-sans); }
+.label { font: 500 12px/16px var(--font-sans); letter-spacing: 0.02em; }
+.code { font: 400 13px/20px var(--font-mono); }
+.metric { font: 500 28px/32px var(--font-mono); }

@@ -1,0 +1,11 @@
+{
+  "name": "@flobase/design-system",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./tailwind.css": "./tailwind.css",
+    "./tokens": "./tokens.ts"
+  }
+}

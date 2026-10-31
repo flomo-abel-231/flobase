@@ -1,0 +1,6 @@
+node_modules
+**/node_modules
+dashboard/dist
+control-plane/bin
+.env
+.git

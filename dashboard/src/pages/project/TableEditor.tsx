@@ -1,0 +1,417 @@
+import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
+import { api, type Column, type NewColumn, type Project, type TableInfo, type TableRows } from "../../api";
+import { Button, Card, Field, Input, Notice } from "../../ui";
+
+const PAGE = 100;
+
+const typeOptions: { value: string; label: string }[] = [
+  { value: "text", label: "text" },
+  { value: "varchar", label: "varchar" },
+  { value: "int4", label: "integer" },
+  { value: "int8", label: "bigint" },
+  { value: "float8", label: "double precision" },
+  { value: "numeric", label: "numeric" },
+  { value: "bool", label: "boolean" },
+  { value: "uuid", label: "uuid" },
+  { value: "timestamptz", label: "timestamptz" },
+  { value: "date", label: "date" },
+  { value: "jsonb", label: "jsonb" },
+];
+
+function display(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+// An empty field means NULL; Postgres converts the text to the column type.
+function toValue(text: string): unknown {
+  return text === "" ? null : text;
+}
+
+const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
+
+export function TableEditor({ project }: { project: Project }) {
+  const [tables, setTables] = useState<TableInfo[] | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadTables = useCallback(async (select?: string) => {
+    try {
+      const list = await api.tables(project.ref);
+      setTables(list);
+      setSelected((cur) => select ?? (cur && list.some((t) => t.name === cur) ? cur : list[0]?.name ?? null));
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [project.ref]);
+
+  useEffect(() => {
+    loadTables();
+  }, [loadTables]);
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
+      <aside className="flex flex-col gap-3">
+        <Button onClick={() => setCreating(true)}>New table</Button>
+        <nav aria-label="Tables">
+          <ul className="flex flex-col gap-0.5">
+            {tables?.map((t) => (
+              <li key={t.name}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelected(t.name);
+                    setCreating(false);
+                  }}
+                  aria-current={t.name === selected && !creating ? "true" : undefined}
+                  className={`flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left ${
+                    t.name === selected && !creating ? "bg-brand-subtle text-ink" : "text-ink-muted hover:bg-surface-sunken hover:text-ink"
+                  }`}
+                >
+                  <span className="code truncate">{t.name}</span>
+                  {!t.rls && <span className="label shrink-0 text-warning">RLS off</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        {tables && tables.length === 0 && <p className="body-sm text-ink-muted">No tables in the public schema yet.</p>}
+      </aside>
+
+      <section className="min-w-0">
+        {error && <Notice tone="danger">{error}</Notice>}
+        {creating ? (
+          <NewTable
+            project={project}
+            onCancel={() => setCreating(false)}
+            onCreated={(name) => {
+              setCreating(false);
+              loadTables(name);
+            }}
+          />
+        ) : selected ? (
+          <TableView key={selected} project={project} table={selected} onChanged={() => loadTables()} />
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
+function TableView({ project, table, onChanged }: { project: Project; table: string; onChanged: () => void }) {
+  const [data, setData] = useState<TableRows | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [error, setError] = useState("");
+  const [editing, setEditing] = useState<{ row: number; col: string; value: string } | null>(null);
+  const [adding, setAdding] = useState<Record<string, string> | null>(null);
+  const [confirm, setConfirm] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await api.rows(project.ref, table, offset, PAGE));
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [project.ref, table, offset]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (!data) return error ? <Notice tone="danger">{error}</Notice> : null;
+
+  const pk = data.columns.filter((c) => c.primary);
+  const match = (row: Record<string, unknown>) => Object.fromEntries(pk.map((c) => [c.name, row[c.name]]));
+
+  const act = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      setError("");
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const saveEdit = () => {
+    if (!editing) return;
+    const row = data.rows[editing.row];
+    const e = editing;
+    setEditing(null);
+    if (display(row[e.col]) === e.value) return;
+    act(() => api.updateRow(project.ref, table, match(row), { [e.col]: toValue(e.value) }));
+  };
+
+  const onEditKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") saveEdit();
+    if (e.key === "Escape") setEditing(null);
+  };
+
+  const insert = (e: FormEvent) => {
+    e.preventDefault();
+    if (!adding) return;
+    // Blank fields are left out so column defaults apply.
+    const values = Object.fromEntries(Object.entries(adding).filter(([, v]) => v !== ""));
+    setAdding(null);
+    act(() => api.insertRow(project.ref, table, values));
+  };
+
+  const enableRLS = () =>
+    act(async () => {
+      await api.sql(project.ref, `alter table public.${quote(table)} enable row level security;`);
+      onChanged();
+    });
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col">
+          <h2 className="h3 code">{table}</h2>
+          <span className="body-sm text-ink-muted">
+            {data.total.toLocaleString()} rows · {data.columns.length} columns
+            {pk.length === 0 ? " · no primary key, so rows are read-only here" : ""}
+          </span>
+        </div>
+        <Button variant="primary" onClick={() => setAdding({})} disabled={adding !== null}>
+          Insert row
+        </Button>
+      </div>
+
+      {error && <Notice tone="danger">{error}</Notice>}
+      {!data.rls && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning bg-surface-raised px-4 py-3">
+          <p className="body-sm text-warning">
+            <strong className="font-medium">Row-level security is off.</strong> Anyone with the anon key can read and change every
+            row through the API.
+          </p>
+          <Button onClick={enableRLS}>Enable RLS</Button>
+        </div>
+      )}
+
+      {adding && (
+        <Card className="p-4">
+          <form onSubmit={insert} className="flex flex-col gap-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {data.columns.map((c) => (
+                <Field key={c.name} label={c.name} hint={hint(c)}>
+                  <Input
+                    value={adding[c.name] ?? ""}
+                    onChange={(e) => setAdding({ ...adding, [c.name]: e.target.value })}
+                    placeholder={c.default ? "default" : c.nullable ? "NULL" : ""}
+                  />
+                </Field>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <Button type="submit">Save row</Button>
+              <Button type="button" onClick={() => setAdding(null)}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </Card>
+      )}
+
+      <div className="max-h-[65vh] overflow-auto rounded-md border border-border bg-surface-raised">
+        <table className="w-full border-collapse text-left">
+          <thead className="sticky top-0 z-10 bg-surface-sunken">
+            <tr>
+              {data.columns.map((c) => (
+                <th key={c.name} className="whitespace-nowrap border-b border-border px-3 py-2">
+                  <span className="label text-ink">{c.name}</span>
+                  <span className="code ml-2 text-ink-muted">{c.type}</span>
+                  {c.primary && <span className="label ml-2 text-ink-muted">PK</span>}
+                </th>
+              ))}
+              {pk.length > 0 && <th className="border-b border-border" aria-label="Actions" />}
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row, i) => (
+              <tr key={i} className="border-b border-border last:border-0">
+                {data.columns.map((c) => {
+                  const isEditing = editing?.row === i && editing.col === c.name;
+                  const v = row[c.name];
+                  return (
+                    <td key={c.name} className="code max-w-[280px] px-1 py-1 text-ink">
+                      {isEditing ? (
+                        <input
+                          autoFocus
+                          aria-label={`Edit ${c.name}`}
+                          value={editing.value}
+                          onChange={(e) => setEditing({ ...editing, value: e.target.value })}
+                          onKeyDown={onEditKey}
+                          onBlur={saveEdit}
+                          className="code w-full min-w-[120px] rounded-sm border border-brand bg-surface-raised px-2 py-1 text-ink"
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={pk.length === 0}
+                          onClick={() => setEditing({ row: i, col: c.name, value: display(v) })}
+                          title={pk.length ? "Click to edit" : display(v)}
+                          className="block w-full truncate rounded-sm px-2 py-1 text-left enabled:hover:bg-surface-sunken"
+                        >
+                          {v === null || v === undefined ? <span className="text-ink-muted">NULL</span> : display(v)}
+                        </button>
+                      )}
+                    </td>
+                  );
+                })}
+                {pk.length > 0 && (
+                  <td className="whitespace-nowrap px-2 py-1 text-right">
+                    {confirm === i ? (
+                      <span className="inline-flex gap-2">
+                        <Button
+                          variant="danger"
+                          onClick={() => {
+                            setConfirm(null);
+                            act(() => api.deleteRow(project.ref, table, match(row)));
+                          }}
+                        >
+                          Delete
+                        </Button>
+                        <Button onClick={() => setConfirm(null)}>Cancel</Button>
+                      </span>
+                    ) : (
+                      <Button onClick={() => setConfirm(i)} aria-label={`Delete row ${i + 1}`}>
+                        Delete
+                      </Button>
+                    )}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {data.rows.length === 0 && <p className="body-sm px-3 py-6 text-center text-ink-muted">No rows yet.</p>}
+      </div>
+
+      {data.total > PAGE && (
+        <div className="flex items-center justify-between gap-3">
+          <span className="body-sm text-ink-muted">
+            Rows {offset + 1}–{Math.min(offset + PAGE, data.total)} of {data.total.toLocaleString()}
+          </span>
+          <div className="flex gap-2">
+            <Button onClick={() => setOffset(Math.max(0, offset - PAGE))} disabled={offset === 0}>
+              Previous
+            </Button>
+            <Button onClick={() => setOffset(offset + PAGE)} disabled={offset + PAGE >= data.total}>
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function hint(c: Column): string {
+  if (c.default) return `Blank uses the default: ${c.default}`;
+  return c.nullable ? "Blank means NULL." : "Required.";
+}
+
+function NewTable({ project, onCancel, onCreated }: { project: Project; onCancel: () => void; onCreated: (name: string) => void }) {
+  const [name, setName] = useState("");
+  const [rls, setRls] = useState(true);
+  const [cols, setCols] = useState<NewColumn[]>([{ name: "", type: "text", nullable: true }]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const update = (i: number, patch: Partial<NewColumn>) => setCols(cols.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.createTable(project.ref, { name: name.trim(), rls, columns: cols.filter((c) => c.name.trim()) });
+      onCreated(name.trim());
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="p-6">
+      <form onSubmit={submit} className="flex flex-col gap-6">
+        <div className="flex flex-col gap-1">
+          <h2 className="h3">New table</h2>
+          <p className="body-sm text-ink-muted">
+            Every table gets an <span className="font-mono">id</span> primary key and a{" "}
+            <span className="font-mono">created_at</span> time.
+          </p>
+        </div>
+        <Field label="Name" hint="Lowercase letters, digits and underscores.">
+          <Input value={name} onChange={(e) => setName(e.target.value)} required pattern="[a-z][a-z0-9_]*" autoFocus />
+        </Field>
+        <label className="flex items-start gap-3">
+          <input type="checkbox" checked={rls} onChange={(e) => setRls(e.target.checked)} className="mt-1 size-4 accent-brand" />
+          <span className="flex flex-col">
+            <span className="body text-ink">Enable row-level security</span>
+            <span className="body-sm text-ink-muted">
+              Recommended. With it on, the API returns no rows until you add a policy.
+            </span>
+          </span>
+        </label>
+        <fieldset className="flex flex-col gap-3">
+          <legend className="label mb-2 text-ink">Columns</legend>
+          {cols.map((c, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-3">
+              <div className="min-w-[160px] flex-1">
+                <Input
+                  aria-label={`Column ${i + 1} name`}
+                  placeholder="column_name"
+                  value={c.name}
+                  onChange={(e) => update(i, { name: e.target.value })}
+                  pattern="[a-z][a-z0-9_]*"
+                />
+              </div>
+              <select
+                aria-label={`Column ${i + 1} type`}
+                value={c.type}
+                onChange={(e) => update(i, { type: e.target.value })}
+                className="h-9 rounded-md border border-border-strong bg-surface-raised px-2 text-[15px] text-ink"
+              >
+                {typeOptions.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+              <label className="body-sm flex items-center gap-2 text-ink">
+                <input
+                  type="checkbox"
+                  checked={c.nullable}
+                  onChange={(e) => update(i, { nullable: e.target.checked })}
+                  className="size-4 accent-brand"
+                />
+                Nullable
+              </label>
+              <Button type="button" onClick={() => setCols(cols.filter((_, j) => j !== i))} aria-label={`Remove column ${i + 1}`}>
+                Remove
+              </Button>
+            </div>
+          ))}
+          <div>
+            <Button type="button" onClick={() => setCols([...cols, { name: "", type: "text", nullable: true }])}>
+              Add column
+            </Button>
+          </div>
+        </fieldset>
+        {error && <Notice tone="danger">{error}</Notice>}
+        <div className="flex gap-3">
+          <Button variant="primary" type="submit" disabled={busy || !name.trim()}>
+            {busy ? "Creating…" : "Create table"}
+          </Button>
+          <Button type="button" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
