@@ -1,5 +1,7 @@
 # FloBase
 
+[![CI](https://github.com/flomo-abel-231/flobase/actions/workflows/ci.yml/badge.svg)](https://github.com/flomo-abel-231/flobase/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/flomo-abel-231/flobase)](https://github.com/flomo-abel-231/flobase/releases/latest) [![Licence](https://img.shields.io/badge/licence-Apache%202.0-blue)](LICENSE)
+
 Open-source cloud databases: every project gets its own Postgres, MySQL or MongoDB-compatible database, with API keys and a dashboard. Postgres projects also get a REST and GraphQL API, user sign-up and login, connection pooling, and backups with point-in-time recovery, compatible with the Supabase client libraries. One codebase runs self-hosted on a single machine or as a managed multi-cloud service.
 
 This covers Phase 1 and the core of Phase 2 of the [feature plan](https://claude.ai/artifact/F4DZHUW5PtAGfXaofZmCkf).

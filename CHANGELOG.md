@@ -2,6 +2,11 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## 0.1.1 — 2026-10-31
+
+- README shows CI, latest-release and licence badges.
+- First release delivered through automatic updates: instances on 0.1.0 install it by themselves.
+
 ## 0.1.0 — 2026-10-31
 
 First release.
