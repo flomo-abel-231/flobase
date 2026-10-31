@@ -1,11 +1,16 @@
 name: Release
 
 # Pushing a tag such as v0.2.0 publishes that version:
-#   1. images for linux/amd64 and linux/arm64 to ghcr.io/<owner>/flobase,
-#      tagged 0.2.0, 0.2 and latest;
-#   2. a GitHub Release with the files the installer and updater download.
-# Self-hosted FloBase instances see the release within six hours and, with
-# automatic updates on, install it.
+#   1. server images for linux/amd64 and linux/arm64 to ghcr.io/<owner>/flobase,
+#      tagged 0.2.0, 0.2 and latest, and a draft GitHub Release with the
+#      files the server installer and updater download;
+#   2. the flobase CLI for macOS, Windows and Linux (Intel/x64 and ARM);
+#   3. FloBase Desktop for macOS (one universal app for Intel and Apple
+#      silicon) and Windows (installer for x64, portable app for ARM64);
+#   4. publishes the release once every file is attached.
+# Self-hosted servers see the release within six hours and, with automatic
+# updates on, install it. The draft step means they never see a release
+# that is missing files.
 
 on:
   push:
@@ -19,9 +24,15 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
-  release:
+  server:
+    name: Server images and draft release
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,24 +78,138 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p dist
-          cp docker-compose.yml scripts/install.sh scripts/upgrade.sh dist/
+          cp docker-compose.yml scripts/install.sh scripts/upgrade.sh scripts/install-cli.sh scripts/install-cli.ps1 dist/
           cp .env.example dist/env.example
+          v="${{ steps.version.outputs.version }}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/v$v"
           cat > dist/notes.md <<EOF
-          Install or upgrade on a Linux server:
+          ### On your computer
+
+          | | Download |
+          | --- | --- |
+          | macOS (Intel and Apple silicon M1–M4) | [FloBase-macOS.dmg]($base/FloBase-macOS.dmg) |
+          | Windows x64 | [FloBase-Windows-x64-setup.exe]($base/FloBase-Windows-x64-setup.exe) |
+          | Windows on ARM | [FloBase-Windows-arm64.zip]($base/FloBase-Windows-arm64.zip) |
+
+          FloBase Desktop installs everything FloBase needs, including a Docker engine, on first start. Or use the CLI:
 
           \`\`\`bash
-          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install.sh | sudo FLOBASE_VERSION=${{ steps.version.outputs.version }} bash
+          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install-cli.sh | sh
           \`\`\`
 
-          Instances with automatic updates on install this release by themselves within six hours. Image: \`${{ steps.version.outputs.image }}:${{ steps.version.outputs.version }}\`.
+          \`\`\`powershell
+          irm https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install-cli.ps1 | iex
+          \`\`\`
+
+          ### On a Linux server
+
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install.sh | sudo FLOBASE_VERSION=$v bash
+          \`\`\`
+
+          Servers with automatic updates on install this release by themselves within six hours. Image: \`${{ steps.version.outputs.image }}:$v\`.
 
           EOF
 
-      - name: Create the GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create the draft release
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          gh release create "$GITHUB_REF_NAME" --draft \
             --title "FloBase ${{ steps.version.outputs.version }}" \
             --notes-file dist/notes.md --generate-notes --verify-tag \
-            dist/docker-compose.yml dist/install.sh dist/upgrade.sh dist/env.example
+            dist/docker-compose.yml dist/install.sh dist/upgrade.sh dist/env.example \
+            dist/install-cli.sh dist/install-cli.ps1
+
+  cli:
+    name: CLI for macOS, Windows and Linux
+    needs: server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: control-plane/go.mod
+          cache-dependency-path: control-plane/go.sum
+      - name: Build
+        working-directory: control-plane
+        run: |
+          v="${{ needs.server.outputs.version }}"
+          mkdir -p ../dist
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            os="${target%/*}"; arch="${target#*/}"
+            out="../dist/build-$os-$arch"
+            mkdir -p "$out"
+            bin=flobase; [ "$os" = windows ] && bin=flobase.exe
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=$v" -o "$out/$bin" ./cmd/flobase
+            cp ../LICENSE "$out/"
+            if [ "$os" = windows ]; then
+              (cd "$out" && zip -q "../flobase_${os}_${arch}.zip" "$bin" LICENSE)
+            else
+              tar -czf "../dist/flobase_${os}_${arch}.tar.gz" -C "$out" "$bin" LICENSE
+            fi
+          done
+          cd ../dist && sha256sum flobase_*.tar.gz flobase_*.zip > checksums.txt && cat checksums.txt
+      - name: Upload
+        run: gh release upload "$GITHUB_REF_NAME" dist/flobase_*.tar.gz dist/flobase_*.zip dist/checksums.txt --clobber
+
+  desktop-macos:
+    name: FloBase Desktop for macOS
+    needs: server
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
+      - name: Build the universal app
+        working-directory: desktop
+        run: |
+          v="${{ needs.server.outputs.version }}"
+          sed -i '' "s/\"productVersion\": \"[^\"]*\"/\"productVersion\": \"$v\"/" wails.json
+          wails build -platform darwin/universal -clean -trimpath -ldflags "-X main.version=$v"
+          lipo -info build/bin/FloBase.app/Contents/MacOS/FloBase
+      - name: Package the disk image
+        run: |
+          mkdir -p dmg && cp -R desktop/build/bin/FloBase.app dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname "FloBase" -srcfolder dmg -ov -format UDZO FloBase-macOS.dmg
+      - name: Upload
+        run: gh release upload "$GITHUB_REF_NAME" FloBase-macOS.dmg --clobber
+
+  desktop-windows:
+    name: FloBase Desktop for Windows
+    needs: server
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+      - name: Install Wails and NSIS
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
+          choco install nsis -y --no-progress
+          echo "C:/Program Files (x86)/NSIS" >> "$GITHUB_PATH"
+      - name: Build
+        working-directory: desktop
+        run: |
+          v="${{ needs.server.outputs.version }}"
+          sed -i "s/\"productVersion\": \"[^\"]*\"/\"productVersion\": \"$v\"/" wails.json
+          wails build -platform windows/amd64 -nsis -clean -trimpath -ldflags "-X main.version=$v"
+          cp build/bin/FloBase-amd64-installer.exe ../FloBase-Windows-x64-setup.exe
+          wails build -platform windows/arm64 -clean -trimpath -ldflags "-X main.version=$v"
+          cd build/bin && 7z a -tzip ../../../FloBase-Windows-arm64.zip FloBase.exe
+      - name: Upload
+        run: gh release upload "$GITHUB_REF_NAME" FloBase-Windows-x64-setup.exe FloBase-Windows-arm64.zip --clobber
+
+  publish:
+    name: Publish the release
+    needs: [server, cli, desktop-macos, desktop-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

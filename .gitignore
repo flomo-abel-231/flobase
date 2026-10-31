@@ -3,3 +3,5 @@ dashboard/dist/
 control-plane/bin/
 .env
 .DS_Store
+
+desktop/build/bin/
