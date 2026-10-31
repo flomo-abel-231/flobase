@@ -2,7 +2,7 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-11-01
 
 - FloBase Desktop for macOS (one app for Intel and Apple silicon M1–M4) and Windows (x64 installer, ARM64 app).
 - `flobase` CLI for macOS, Windows and Linux on x64 and ARM64: `setup`, `start`, `stop`, `status`, `open`, `logs`, `update`, `uninstall`.
