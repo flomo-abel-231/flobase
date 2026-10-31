@@ -115,6 +115,9 @@ func run(log *slog.Logger) error {
 	cfg := api.Config{
 		Mode: mode, Version: version, APIToken: token, Markup: markup,
 		GatewayURL: env("FLOBASE_GATEWAY_URL", "http://localhost:8000"),
+		UpdateRepo: env("FLOBASE_UPDATE_REPO", "flomo-abel-231/flobase"),
+		AutoUpdate: os.Getenv("FLOBASE_AUTO_UPDATE") == "true",
+		InstallDir: os.Getenv("FLOBASE_INSTALL_DIR"),
 	}
 	if offsite != nil {
 		cfg.OffsiteBucket, cfg.OffsiteEncrypted = offsite.Bucket, offsite.EncryptionKey != ""
@@ -130,6 +133,7 @@ func run(log *slog.Logger) error {
 	}
 	go srv.EnsureOffsiteAll(ctx)
 	go srv.RunBackups(ctx)
+	go srv.RunUpdateChecks(ctx)
 
 	handler := srv.Routes()
 	if dir := os.Getenv("FLOBASE_DASHBOARD_DIR"); dir != "" {

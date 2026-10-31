@@ -140,6 +140,20 @@ export interface OffsiteList {
 
 export type RestoreTarget = { latest: true } | { time: string } | { backup: string };
 
+export interface Updates {
+  current: string;
+  latest?: string;
+  available: boolean;
+  notes?: string;
+  release_url?: string;
+  auto: boolean;
+  can_update: boolean;
+  updating: boolean;
+  checked_at?: string;
+  error?: string;
+  manual_steps?: string;
+}
+
 export interface NewColumn {
   name: string;
   type: string;
@@ -242,6 +256,9 @@ export const api = {
   offsite: () => request<OffsiteList>("GET", "/offsite"),
   restoreOffsite: (ref: string, target: RestoreTarget, name: string) =>
     request<Project>("POST", `/offsite/${ref}/restore`, { ...target, name }),
+  updates: () => request<Updates>("GET", "/updates"),
+  checkUpdates: () => request<Updates>("POST", "/updates/check"),
+  updateNow: () => request<void>("POST", "/updates"),
   logs: (ref: string, service: string) =>
     request<{ services: string[]; service: string; text: string }>("GET", `/projects/${ref}/logs?service=${service}`),
 };
