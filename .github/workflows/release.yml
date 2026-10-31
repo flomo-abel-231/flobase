@@ -1,0 +1,90 @@
+name: Release
+
+# Pushing a tag such as v0.2.0 publishes that version:
+#   1. images for linux/amd64 and linux/arm64 to ghcr.io/<owner>/flobase,
+#      tagged 0.2.0, 0.2 and latest;
+#   2. a GitHub Release with the files the installer and updater download.
+# Self-hosted FloBase instances see the release within six hours and, with
+# automatic updates on, install it.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Tag $GITHUB_REF_NAME is not vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "minor=${version%.*}"
+            echo "image=ghcr.io/${GITHUB_REPOSITORY,,}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          tags: |
+            ${{ steps.version.outputs.image }}:${{ steps.version.outputs.version }}
+            ${{ steps.version.outputs.image }}:${{ steps.version.outputs.minor }}
+            ${{ steps.version.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Prepare release files
+        run: |
+          mkdir -p dist
+          cp docker-compose.yml scripts/install.sh scripts/upgrade.sh dist/
+          cp .env.example dist/env.example
+          cat > dist/notes.md <<EOF
+          Install or upgrade on a Linux server:
+
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/scripts/install.sh | sudo FLOBASE_VERSION=${{ steps.version.outputs.version }} bash
+          \`\`\`
+
+          Instances with automatic updates on install this release by themselves within six hours. Image: \`${{ steps.version.outputs.image }}:${{ steps.version.outputs.version }}\`.
+
+          EOF
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "FloBase ${{ steps.version.outputs.version }}" \
+            --notes-file dist/notes.md --generate-notes --verify-tag \
+            dist/docker-compose.yml dist/install.sh dist/upgrade.sh dist/env.example

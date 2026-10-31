@@ -1,0 +1,10 @@
+# Development override: build the FloBase image from this checkout instead of
+# pulling a released one.
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+
+services:
+  flobase:
+    build:
+      context: .
+      args:
+        VERSION: ${FLOBASE_VERSION:-dev}
