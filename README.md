@@ -6,7 +6,29 @@ Open-source cloud databases: every project gets its own Postgres, MySQL or Mongo
 
 This covers Phase 1 and the core of Phase 2 of the [feature plan](https://claude.ai/artifact/F4DZHUW5PtAGfXaofZmCkf).
 
-## Install
+## Run it on your computer
+
+| | Download |
+| --- | --- |
+| macOS, Intel and Apple silicon (M1–M4) | [FloBase-macOS.dmg](https://github.com/flomo-abel-231/flobase/releases/latest/download/FloBase-macOS.dmg) |
+| Windows x64 | [FloBase-Windows-x64-setup.exe](https://github.com/flomo-abel-231/flobase/releases/latest/download/FloBase-Windows-x64-setup.exe) |
+| Windows on ARM | [FloBase-Windows-arm64.zip](https://github.com/flomo-abel-231/flobase/releases/latest/download/FloBase-Windows-arm64.zip) |
+
+Or the `flobase` CLI, on macOS and Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/flomo-abel-231/flobase/main/scripts/install-cli.sh | sh
+```
+
+and on Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/flomo-abel-231/flobase/main/scripts/install-cli.ps1 | iex
+```
+
+FloBase Desktop and the CLI install everything FloBase needs on first start, including a Docker engine (its own on macOS, Docker Desktop on Windows), then open the dashboard signed in. See [running FloBase on your computer](docs/local.md).
+
+## Install on a server
 
 On a Linux server with 2 GB of memory or more:
 
@@ -28,13 +50,15 @@ await db.auth.signUp({ email: "ada@example.com", password: "correct-horse-42" })
 const { data } = await db.from("todos").select("*");
 ```
 
-The project URL and keys are on the project's Overview tab. GraphQL is at `<project URL>/graphql/v1`.
+The project URL and keys are under the project's Configuration → API. GraphQL is at `<project URL>/graphql/v1`.
 
 ## What is in the repo
 
 | Path | What it is |
 | --- | --- |
 | `control-plane/` | Go API: projects, regions, plans, API keys, provisioning. Never on the request path to a database. |
+| `control-plane/cmd/flobase/`, `control-plane/local/` | The `flobase` CLI and the local runner it shares with FloBase Desktop: installs a Docker engine, runs FloBase on a laptop. |
+| `desktop/` | FloBase Desktop for macOS and Windows (Wails). |
 | `control-plane/cmd/flobase-gateway/` | API gateway: routes `/project/<ref>/rest/v1`, `/auth/v1` and `/graphql/v1`, checks API keys, adds CORS. |
 | `control-plane/internal/provisioner/` | Docker driver (self-hosted, local region). A Kubernetes driver for cloud regions comes next. |
 | `dashboard/` | React + Vite dashboard, built on the design system. |

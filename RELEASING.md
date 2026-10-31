@@ -2,8 +2,12 @@
 
 A release is a git tag. Pushing `vMAJOR.MINOR.PATCH` runs the [Release workflow](.github/workflows/release.yml), which:
 
-1. builds the image for `linux/amd64` and `linux/arm64` and pushes it to `ghcr.io/flomo-abel-231/flobase` as `0.2.0`, `0.2` and `latest`;
-2. creates a GitHub Release with `docker-compose.yml`, `install.sh`, `upgrade.sh` and `env.example`, plus notes generated from merged pull requests.
+1. builds the server image for `linux/amd64` and `linux/arm64` and pushes it to `ghcr.io/flomo-abel-231/flobase` as `0.2.0`, `0.2` and `latest`, and creates a **draft** GitHub Release with `docker-compose.yml`, `install.sh`, `upgrade.sh`, `env.example` and the CLI install scripts;
+2. builds the `flobase` CLI for macOS, Linux and Windows on x64 and ARM64, with `checksums.txt`;
+3. builds FloBase Desktop: `FloBase-macOS.dmg` (universal, on a macOS runner), `FloBase-Windows-x64-setup.exe` and `FloBase-Windows-arm64.zip` (on a Windows runner);
+4. publishes the release once every file is attached, with notes generated from merged pull requests.
+
+If any build fails, the release stays a draft: fix the problem, delete the draft and the tag, and tag again.
 
 Every self-hosted FloBase with automatic updates on installs the release within six hours. A release is therefore a deploy to every user: only tag what passed CI.
 
@@ -19,8 +23,8 @@ Every self-hosted FloBase with automatic updates on installs the release within 
    git push origin main v0.2.0
    ```
 
-5. Watch the run under **Actions → Release**. It takes about ten minutes.
-6. Check the release page lists the four files, then try it on a test server:
+5. Watch the run under **Actions → Release**. It takes about fifteen minutes.
+6. Check the release page lists every file (server files, six CLI archives, checksums, the macOS disk image and the two Windows downloads), then try it on a test server:
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/flomo-abel-231/flobase/main/scripts/install.sh | sudo FLOBASE_VERSION=0.2.0 bash
@@ -29,6 +33,13 @@ Every self-hosted FloBase with automatic updates on installs the release within 
 ## The first release only
 
 GitHub can create the container package as private. After the first release, open **Packages → flobase → Package settings** on GitHub and make sure the visibility is **Public**; otherwise installs fail to pull the image.
+
+## Signing the desktop apps
+
+FloBase Desktop is not yet signed, so macOS (Privacy & Security → Open Anyway) and Windows (SmartScreen → Run anyway) ask users to confirm the first open; [docs/local.md](docs/local.md) explains this. To remove those prompts:
+
+- **macOS:** join the Apple Developer Program, create a Developer ID Application certificate, and add `codesign --options runtime` and `xcrun notarytool submit --wait` plus `xcrun stapler staple` steps to the `desktop-macos` job, with the certificate and an app-specific password as repository secrets.
+- **Windows:** buy a code-signing certificate (or use Azure Trusted Signing) and sign `FloBase.exe` and the installer with `signtool` in the `desktop-windows` job.
 
 ## Changes that need care
 
