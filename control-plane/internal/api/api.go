@@ -29,6 +29,12 @@ type Config struct {
 	// Shown in the dashboard; credentials stay in the provisioner.
 	OffsiteBucket    string
 	OffsiteEncrypted bool
+	// Self-update: the GitHub repository releases come from, whether to
+	// install them without asking, and where the install script put FloBase
+	// on the host (empty = not installed by it, so no self-update).
+	UpdateRepo string
+	AutoUpdate bool
+	InstallDir string
 }
 
 type Server struct {
@@ -37,10 +43,17 @@ type Server struct {
 	prov  provisioner.Provisioner
 	log   *slog.Logger
 	jobs  backupJobs
+	// updater is nil when the provisioner cannot start the updater.
+	updater Updater
+	updates updateState
 }
 
 func New(cfg Config, st *store.Store, prov provisioner.Provisioner, log *slog.Logger) *Server {
-	return &Server{cfg: cfg, store: st, prov: prov, log: log, jobs: backupJobs{running: map[string]bool{}, sources: map[string]int{}}}
+	s := &Server{cfg: cfg, store: st, prov: prov, log: log, jobs: backupJobs{running: map[string]bool{}, sources: map[string]int{}}}
+	if u, ok := prov.(Updater); ok {
+		s.updater = u
+	}
+	return s
 }
 
 func (s *Server) Routes() http.Handler {
@@ -55,6 +68,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /api/v1/projects/{ref}", s.auth(s.deleteProject))
 	s.dataRoutes(mux)
 	s.backupRoutes(mux)
+	s.updateRoutes(mux)
 	return mux
 }
 

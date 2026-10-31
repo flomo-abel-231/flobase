@@ -1,6 +1,6 @@
 # FloBase developer commands.
 
-.PHONY: env up down logs build dashboard api dev-db dev-api dev-dashboard test clean
+.PHONY: env up down logs release-check build dashboard api dev-db dev-api dev-dashboard test clean
 
 DOCKER_SOCKET ?= $(shell docker context inspect --format '{{.Endpoints.docker.Host}}' | sed 's|unix://||')
 
@@ -10,14 +10,20 @@ env: ## Write .env with random secrets (keeps an existing .env)
 	      -e "s/^FLOBASE_PLATFORM_DB_PASSWORD=.*/FLOBASE_PLATFORM_DB_PASSWORD=$$(openssl rand -hex 24)/" \
 	      .env.example > .env && echo "Wrote .env. Your API token: $$(grep ^FLOBASE_API_TOKEN .env | cut -d= -f2)"
 
-up: env ## Build and start self-hosted FloBase on http://localhost:8080
-	docker compose up -d --build
+COMPOSE_DEV = docker compose -f docker-compose.yml -f docker-compose.build.yml
+
+up: env ## Build from source and start FloBase on http://localhost:8080
+	FLOBASE_VERSION=dev $(COMPOSE_DEV) up -d --build
 
 down: ## Stop FloBase (project databases keep running)
 	docker compose down
 
 logs:
 	docker compose logs -f flobase
+
+release-check: ## Lint the shell scripts and workflows like CI does
+	docker run --rm -v "$$PWD:/src" -w /src koalaman/shellcheck:v0.10.0 scripts/install.sh scripts/upgrade.sh
+	docker run --rm -v "$$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
 
 build: dashboard api ## Build the dashboard and the control-plane binary
 

@@ -4,15 +4,17 @@ Open-source cloud databases: every project gets its own Postgres, MySQL or Mongo
 
 This covers Phase 1 and the core of Phase 2 of the [feature plan](https://claude.ai/artifact/F4DZHUW5PtAGfXaofZmCkf).
 
-## Run it
+## Install
 
-Needs Docker with Compose.
+On a Linux server with 2 GB of memory or more:
 
 ```bash
-make up
+curl -fsSL https://raw.githubusercontent.com/flomo-abel-231/flobase/main/scripts/install.sh | sudo bash
 ```
 
-This writes `.env` with random secrets, prints your API token, and starts FloBase: the dashboard on http://localhost:8080 and the project API gateway on http://localhost:8000. Sign in with the token, then create a project. The first project on each engine downloads its images, which takes a few minutes; after that a Postgres project is ready in under a minute.
+The installer sets up Docker if needed, starts the latest release from `ghcr.io/flomo-abel-231/flobase` in `/data/flobase`, and prints the dashboard URL and your sign-in token. FloBase then updates itself when a new release is published, backing up its own database first and rolling back if the new version does not start.
+
+The [self-hosting guide](docs/self-hosting.md) covers requirements, every setting, HTTPS with a domain, manual and automatic updates, backups and uninstalling.
 
 ## Use a Postgres project from your app
 
@@ -53,6 +55,14 @@ MongoDB itself is under the SSPL, which would force the whole service's source o
 - `FLOBASE_MODE=cloud`: plans with prices (estimated cloud cost × `FLOBASE_MARKUP`, default 1.6) and the AWS, GCP and Azure regions, shown as "Coming soon" until their cells exist.
 
 ## Develop
+
+Build and run from this checkout (the dashboard on http://localhost:8080, project APIs on http://localhost:8000):
+
+```bash
+make up
+```
+
+Or run the pieces on the host:
 
 ```bash
 make dev-db        # platform Postgres on :5433
@@ -95,6 +105,10 @@ Off-site copies outlive the project. If the machine is lost, start FloBase on a 
 - Auth confirms email addresses automatically because no email server is configured yet. Set one up before real users sign up.
 - The control plane mounts the Docker socket, which is root on the host. Keep the API token secret and do not expose port 8080 to the internet without TLS in front.
 - Database passwords and JWT secrets are stored in the platform database unencrypted. Encrypt them (KMS or OpenBao) before running a public service.
+
+## Releasing
+
+Pushing a `vX.Y.Z` tag builds the images, publishes a GitHub Release, and with it updates every self-hosted instance that has automatic updates on. See [RELEASING.md](RELEASING.md) and the [changelog](CHANGELOG.md).
 
 ## Licence
 
