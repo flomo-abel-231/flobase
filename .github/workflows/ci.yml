@@ -43,7 +43,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck scripts/install.sh scripts/upgrade.sh
+      - run: shellcheck scripts/install.sh scripts/upgrade.sh scripts/install-cli.sh
+
+  local:
+    name: CLI and desktop app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+      - name: CLI builds for every platform
+        working-directory: control-plane
+        run: |
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 go build -o /dev/null ./cmd/flobase
+          done
+      # The desktop app needs the platform's web view to build, so CI checks
+      # the Windows target, which compiles without cgo; release builds run on
+      # macOS and Windows runners.
+      - name: Desktop app compiles
+        working-directory: desktop
+        run: GOOS=windows go vet .
 
   image:
     name: Image builds
