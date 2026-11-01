@@ -80,7 +80,7 @@ if [ -n "$f" ]; then
   pg_archivecleanup /backups/wal "$(basename "$f")"
 fi`
 	out, err := d.exec(ctx, dbContainer(ref), "postgres", "sh", "-c", script)
-	if err != nil || d.offsite == nil {
+	if err != nil || d.currentOffsite() == nil {
 		return err
 	}
 	var wal []string
@@ -106,9 +106,13 @@ func safeWAL(n string) string {
 	}, n)
 }
 
+// FlushArchive closes the change log file in use and waits until it is
+// archived. pg_switch_wal returns one byte past the end of the file it
+// closed (or, with nothing new since the last switch, the start of the
+// current file), so the byte before it always lies in a completed file.
 func (d *Docker) FlushArchive(ctx context.Context, ref string) error {
 	_, err := d.exec(ctx, dbContainer(ref), "postgres", "sh", "-c", `set -e
-w=$(psql -h /var/run/postgresql -U supabase_admin -d postgres -tAc "select pg_walfile_name(pg_switch_wal())")
+w=$(psql -h /var/run/postgresql -U supabase_admin -d postgres -tAc "select pg_walfile_name(pg_switch_wal() - 1)")
 i=0
 until [ -f "/backups/wal/$w" ]; do i=$((i+1)); [ $i -lt 60 ] || exit 1; sleep 1; done`)
 	return err

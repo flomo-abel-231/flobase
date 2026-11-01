@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { api, engineLabel, type Project } from "../../api";
-import { Button, Card, CopyField, Notice } from "../../ui";
+import { api, engineLabel, type DeleteCheck, type Project } from "../../api";
+import { Button, Card, CopyField, Field, Input, Notice } from "../../ui";
 import { navigate } from "../../App";
 
 // Configuration follows Coolify's resource settings: a vertical menu of
@@ -136,47 +136,145 @@ const { data } = await db.from("todos").select("*");`}
   );
 }
 
+// Danger: deleting asks for the project's name, and when the project holds
+// data, offers a backup to cloud storage first. Copies in the bucket
+// outlive the project, so it can be restored from Off-site backups.
 function Danger({ project }: { project: Project }) {
-  const [confirming, setConfirming] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [check, setCheck] = useState<DeleteCheck | null>(null);
+  const [typed, setTyped] = useState("");
+  const [skipBackup, setSkipBackup] = useState(false);
+  const [backup, setBackup] = useState<{ state: "idle" | "running" | "done"; text?: string }>({ state: "idle" });
   const [error, setError] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
-  const remove = async () => {
+  const start = async () => {
+    setOpen(true);
+    setError("");
     try {
-      await api.deleteProject(project.ref);
-      navigate("/");
+      setCheck(await api.deleteCheck(project.ref));
     } catch (e) {
       setError((e as Error).message);
     }
   };
 
+  const backUp = async () => {
+    setBackup({ state: "running" });
+    setError("");
+    try {
+      const res = await api.backupToCloud(project.ref);
+      setBackup({ state: "done", text: `Backed up to ${res.bucket} at ${new Date(res.finished).toLocaleString()}.` });
+    } catch (e) {
+      setBackup({ state: "idle" });
+      setError((e as Error).message);
+    }
+  };
+
+  const remove = async () => {
+    setDeleting(true);
+    try {
+      await api.deleteProject(project.ref, typed.trim());
+      navigate("/");
+    } catch (e) {
+      setError((e as Error).message);
+      setDeleting(false);
+    }
+  };
+
+  const needsBackupChoice = !!check?.has_data && backup.state !== "done";
+  const canDelete = typed.trim() === project.name && check !== null && (!needsBackupChoice || skipBackup) && !deleting;
+
   return (
     <Section title="Danger zone">
-      {error && <Notice tone="danger">{error}</Notice>}
-      <Card className="flex flex-col gap-3 border-danger p-4">
+      <Card className="flex flex-col gap-4 border-danger p-4">
         <div className="flex flex-col gap-1">
           <h3 className="text-[14px] font-semibold text-ink">Delete project</h3>
           <p className="body-sm text-ink-muted">
-            Removes the database, its services and its backups on this machine. Off-site copies, if set up, stay in the bucket.
+            Removes the database, its services and its backups on this machine. Copies in cloud storage stay there.
           </p>
         </div>
-        {confirming ? (
-          <div className="flex flex-wrap gap-2">
-            <Button variant="danger" onClick={remove}>
-              Yes, delete {project.name}
-            </Button>
-            <Button onClick={() => setConfirming(false)}>Cancel</Button>
-          </div>
-        ) : (
+
+        {!open && (
           <div>
-            <Button
-              variant="danger"
-              onClick={() => setConfirming(true)}
-              disabled={project.status === "provisioning" || project.status === "deleting"}
-            >
-              Delete project
+            <Button variant="danger" onClick={start} disabled={project.status === "provisioning" || project.status === "deleting"}>
+              Delete project…
             </Button>
           </div>
         )}
+
+        {open && !check && !error && <p className="body-sm text-ink-muted">Checking what the project holds…</p>}
+
+        {open && check && (
+          <div className="flex flex-col gap-4">
+            <p className="body-sm text-ink">
+              <span className="font-medium">{check.has_data ? "This project holds data: " : "No data found: "}</span>
+              {check.summary}
+            </p>
+
+            {check.has_data && backup.state !== "done" && (
+              <div className="flex flex-col gap-3 rounded-md border border-warning bg-surface-raised p-3">
+                {check.cloud_backup ? (
+                  <>
+                    <p className="body-sm text-ink">
+                      Back it up to <span className="font-mono">{check.bucket}</span> first. You can restore it from Off-site backups
+                      after it is deleted.
+                    </p>
+                    <div>
+                      <Button variant="primary" onClick={backUp} disabled={backup.state === "running"}>
+                        {backup.state === "running" ? "Backing up to cloud storage…" : `Back up to ${check.bucket}`}
+                      </Button>
+                    </div>
+                  </>
+                ) : check.engine_backup ? (
+                  <p className="body-sm text-ink">
+                    No cloud storage location is set up, so deleting loses this data for good.{" "}
+                    <a href="#/offsite" className="text-brand underline-offset-2 hover:underline">
+                      Add a storage location
+                    </a>{" "}
+                    to keep a copy first.
+                  </p>
+                ) : (
+                  <p className="body-sm text-ink">
+                    Backups are not available for this engine yet, so deleting loses this data for good. Export what you need first.
+                  </p>
+                )}
+                <label className="body-sm flex items-center gap-2 text-ink">
+                  <input type="checkbox" checked={skipBackup} onChange={(e) => setSkipBackup(e.target.checked)} className="size-4 accent-danger" />
+                  Delete without a backup
+                </label>
+              </div>
+            )}
+
+            {backup.state === "done" && (
+              <p className="body-sm flex items-center gap-2 text-success">
+                <span className="size-2 rounded-full bg-success" aria-hidden />
+                {backup.text}
+              </p>
+            )}
+
+            <Field label={`Type ${project.name} to confirm`}>
+              <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} aria-label="Project name" />
+            </Field>
+
+            <div className="flex flex-wrap gap-2">
+              <Button variant="danger" onClick={remove} disabled={!canDelete}>
+                {deleting ? "Deleting…" : `Delete ${project.name}`}
+              </Button>
+              <Button
+                onClick={() => {
+                  setOpen(false);
+                  setCheck(null);
+                  setTyped("");
+                  setSkipBackup(false);
+                  setBackup({ state: "idle" });
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+        {error && <Notice tone="danger">{error}</Notice>}
       </Card>
     </Section>
   );

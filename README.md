@@ -107,7 +107,9 @@ All routes except `health` and `config` need `Authorization: Bearer $FLOBASE_API
 | `GET /api/v1/projects` | List projects |
 | `POST /api/v1/projects` | Create: `{"name", "engine", "region", "plan"}`; returns 202 and provisions in the background |
 | `GET /api/v1/projects/{ref}` | Project with connection details and anon / service_role keys |
-| `DELETE /api/v1/projects/{ref}` | Delete the database and its data |
+| `DELETE /api/v1/projects/{ref}` | Delete the database and its data; the body must be `{"confirm": "<project name>"}` |
+| `GET /api/v1/projects/{ref}/delete-check` | What the project holds, and whether it can be backed up to cloud storage first |
+| `POST /api/v1/projects/{ref}/backups/offsite` | Take a backup and copy it to cloud storage now (Postgres) |
 | `POST /api/v1/projects/{ref}/sql` | Run SQL as the database owner (Postgres, MySQL) |
 | `GET/POST /api/v1/projects/{ref}/tables` | List or create tables in the public schema (Postgres) |
 | `GET/POST/PATCH/DELETE /api/v1/projects/{ref}/tables/{table}/rows` | Browse and edit rows by primary key (Postgres) |
@@ -115,6 +117,7 @@ All routes except `health` and `config` need `Authorization: Bearer $FLOBASE_API
 | `GET /api/v1/projects/{ref}/logs?service=db` | Last 300 log lines of a service |
 | `GET/POST /api/v1/projects/{ref}/backups` | List full backups and the restore window, or take a backup now (Postgres) |
 | `POST /api/v1/projects/{ref}/restore` | Restore into a new project: `{"latest": true}`, `{"time": "<RFC 3339>"}` or `{"backup": "<name>"}` |
+| `GET/POST /api/v1/storages`, `POST …/storages/test`, `POST …/storages/{id}/activate`, `POST …/storages/deactivate`, `DELETE …/storages/{id}` | Manage storage locations for off-site copies; saving tests the bucket first |
 
 ## Backups
 
@@ -122,9 +125,11 @@ Postgres projects archive every change to a `flobase-<ref>-backups` Docker volum
 
 ### Off-site copies
 
-Set `FLOBASE_BACKUP_S3_BUCKET` and its keys in `.env` (see `.env.example`) and every Postgres project gets a small rclone container that copies its backups to S3-compatible storage (AWS S3, Cloudflare R2, Backblaze B2, Wasabi, MinIO) every 30 seconds. With `FLOBASE_BACKUP_ENCRYPTION_KEY` set, contents and file names are encrypted before they leave the machine; keep that key safe, because the copies cannot be restored without it.
+On **Off-site backups**, add a storage location: an S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze B2, Wasabi, MinIO). FloBase writes, reads and deletes a test file before saving it. The active location gets every Postgres project's backups through a small rclone container per project, every 30 seconds. With an encryption key (the form can generate one), contents and file names are encrypted before they leave the machine; keep that key somewhere other than the server, because the copies cannot be restored without it. Keys are kept in FloBase's database and never shown again, only their last four characters.
 
-Off-site copies outlive the project. If the machine is lost, start FloBase on a new one with the same bucket settings: the Projects page lists every project found in the bucket, and **Restore latest** rebuilds it as a new project. No passwords from the old machine are needed. Without off-site storage, backups only protect against mistakes, not against losing the machine.
+You can also set `FLOBASE_BACKUP_S3_BUCKET` and its keys in `.env` (see `.env.example`). That location then takes precedence and is shown read-only.
+
+Off-site copies outlive the project. If the machine is lost, start FloBase on a new one with the same bucket settings: add the same location (and encryption key): Off-site backups lists every project found in the bucket, and **Restore latest** rebuilds it as a new project. No passwords from the old machine are needed. Without off-site storage, backups only protect against mistakes, not against losing the machine.
 
 ## Security notes
 

@@ -96,7 +96,7 @@ func run(log *slog.Logger) error {
 			return errors.New("FLOBASE_BACKUP_S3_BUCKET is set, so FLOBASE_BACKUP_S3_ACCESS_KEY and FLOBASE_BACKUP_S3_SECRET_KEY must be too")
 		}
 	}
-	docker := provisioner.NewDocker(env("FLOBASE_DOCKER_SOCKET", "/var/run/docker.sock"), env("FLOBASE_PUBLIC_HOST", "localhost"), attach, offsite)
+	docker := provisioner.NewDocker(env("FLOBASE_DOCKER_SOCKET", "/var/run/docker.sock"), env("FLOBASE_PUBLIC_HOST", "localhost"), attach, nil)
 	if err := docker.Ping(ctx); err != nil {
 		return errors.New("cannot reach Docker at FLOBASE_DOCKER_SOCKET: " + err.Error())
 	}
@@ -119,10 +119,7 @@ func run(log *slog.Logger) error {
 		AutoUpdate: os.Getenv("FLOBASE_AUTO_UPDATE") == "true",
 		InstallDir: os.Getenv("FLOBASE_INSTALL_DIR"),
 	}
-	if offsite != nil {
-		cfg.OffsiteBucket, cfg.OffsiteEncrypted = offsite.Bucket, offsite.EncryptionKey != ""
-		log.Info("off-site backups on", "bucket", offsite.Bucket, "encrypted", cfg.OffsiteEncrypted)
-	}
+	cfg.EnvOffsite = offsite
 	srv := api.New(cfg, st, docker, log)
 	deleting, err := st.Deleting(ctx)
 	if err != nil {
@@ -131,7 +128,8 @@ func run(log *slog.Logger) error {
 	for _, p := range deleting {
 		go srv.Teardown(p.Ref)
 	}
-	go srv.EnsureOffsiteAll(ctx)
+	// Point off-site copies at .env's location or the dashboard's active one.
+	go srv.ApplyStorage(ctx)
 	go srv.RunBackups(ctx)
 	go srv.RunUpdateChecks(ctx)
 

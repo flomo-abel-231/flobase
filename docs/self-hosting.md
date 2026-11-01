@@ -173,7 +173,7 @@ docker compose up -d
 ## Backups
 
 - **Project databases (Postgres):** archived continuously and backed up daily on the server, with point-in-time restore from each project's **Backups** tab. See the [README](../README.md#backups).
-- **Off-site copies:** set `FLOBASE_BACKUP_S3_BUCKET`, `FLOBASE_BACKUP_S3_ENDPOINT`, `FLOBASE_BACKUP_S3_ACCESS_KEY`, `FLOBASE_BACKUP_S3_SECRET_KEY` and, ideally, `FLOBASE_BACKUP_ENCRYPTION_KEY` in `.env` to copy every project's backups to S3-compatible storage. Keep the encryption key somewhere other than the server.
+- **Off-site copies:** add a storage location on the dashboard's Off-site backups page, or set `FLOBASE_BACKUP_S3_BUCKET`, `FLOBASE_BACKUP_S3_ENDPOINT`, `FLOBASE_BACKUP_S3_ACCESS_KEY`, `FLOBASE_BACKUP_S3_SECRET_KEY` and, ideally, `FLOBASE_BACKUP_ENCRYPTION_KEY` in `.env` to copy every project's backups to S3-compatible storage. Keep the encryption key somewhere other than the server.
 - **FloBase itself:** every update dumps the platform database to `backups/`. Copy `/data/flobase/.env` and `/data/flobase/backups/` off the server too.
 
 ## Uninstall
