@@ -99,10 +99,15 @@ make test
 
 ## API
 
-All routes except `health` and `config` need `Authorization: Bearer $FLOBASE_API_TOKEN`.
+All routes except `health`, `config` and the sign-in routes under `/api/v1/auth` need `Authorization: Bearer <token>`: a person's access token from signing in, or `$FLOBASE_API_TOKEN`, which has the owner's rights.
 
 | Method and path | Does |
 | --- | --- |
+| `POST /api/v1/auth/token?grant_type=password` | Sign in with `{"email", "password"}`; returns `access_token` (a JWT valid for 1 hour) and `refresh_token`, as Supabase Auth does |
+| `POST /api/v1/auth/token?grant_type=refresh_token` | Exchange `{"refresh_token"}` for a new pair; each refresh token works once |
+| `POST /api/v1/auth/logout?scope=local\|global\|others` | Sign out this session, all of them, or all but this one |
+| `GET /api/v1/me`, `PATCH /api/v1/me`, `POST /api/v1/me/password` | Who is signed in; change your name or password |
+| `GET /api/v1/team`, `POST /api/v1/team/invites`, `PATCH`/`DELETE /api/v1/team/users/{id}` | People and invites; inviting, roles and removing need the owner or an admin |
 | `GET /api/v1/catalog` | Engines, plans, regions |
 | `GET /api/v1/projects` | List projects |
 | `POST /api/v1/projects` | Create: `{"name", "engine", "region", "plan"}`; returns 202 and provisions in the background |
@@ -158,6 +163,14 @@ SQL is sorted by its words, erring towards "change". A query the assistant runs 
 **Automations** run a prompt every hour, day or week, such as "check every project's backups and report any older than a day". Each run is a conversation you can open. Nobody is there to approve, so a run only does what the setting allows without asking.
 
 What you write, and what the assistant reads from your projects, goes to the model's service. Database passwords, API keys and connection strings are removed before anything is sent. Data from your databases is marked as data, not instructions, but a model can still be misled by text it reads. Keep "Ask before changes" for databases that hold content other people write.
+
+## Accounts
+
+People sign in to the dashboard with email and password. On a new install, the first person to open the dashboard creates the owner account, which needs the install's API token (`FLOBASE_API_TOKEN` in `.env`), so nobody else can claim a public server first. The owner and admins invite others under **Team**: FloBase makes a one-time link, valid for 7 days, that you send yourself (FloBase does not send email yet). Everyone signed in can use every project; only the owner and admins manage the team.
+
+Signing in works like Supabase Auth: a JWT access token valid for 1 hour and a refresh token that is exchanged for a new pair before it runs out. Each refresh token works once, and reusing one ends its session. The dashboard keeps the refresh token in an httpOnly cookie and the access token in memory only. Signing out, removing someone and changing a password take effect at once. After 10 wrong passwords for an email, sign-in for it pauses for 15 minutes.
+
+The API token still works everywhere with the owner's rights: the `flobase` CLI and FloBase Desktop sign in with it, and so do automations.
 
 ## Security notes
 

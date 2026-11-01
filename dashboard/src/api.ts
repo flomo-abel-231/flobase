@@ -277,6 +277,10 @@ export interface ServerConfig {
   billing: boolean;
 }
 
+// Two ways to be signed in. A person signs in with email and password and
+// gets a session: a short-lived access token kept in memory only, renewed
+// from a refresh token the server keeps in an httpOnly cookie. The install's
+// API token (from the CLI or desktop app link) is kept for this tab.
 const TOKEN_KEY = "flobase.token";
 
 export function getToken(): string {
@@ -295,9 +299,91 @@ export function setToken(token: string) {
     // Storage can be blocked; the token then lasts for this page only.
   }
   memoryToken = token;
+  usingSession = false;
 }
 
 let memoryToken = getToken();
+let usingSession = false;
+let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: "owner" | "admin" | "member";
+  created_at: string;
+  last_sign_in_at: string | null;
+}
+
+export interface Me {
+  kind: "user" | "token";
+  role: User["role"];
+  user?: User;
+}
+
+export interface Invite {
+  id: string;
+  email: string;
+  role: "admin" | "member";
+  created_at: string;
+  expires_at: string;
+}
+
+interface SessionResponse {
+  access_token: string;
+  expires_in: number;
+  user: User;
+}
+
+function applySession(res: SessionResponse) {
+  memoryToken = res.access_token;
+  usingSession = true;
+  try {
+    sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Nothing stored.
+  }
+  clearTimeout(refreshTimer);
+  // Renew a minute before the access token runs out.
+  refreshTimer = setTimeout(() => void refreshSession(), Math.max(10, res.expires_in - 60) * 1000);
+}
+
+let refreshing: Promise<boolean> | null = null;
+
+// refreshSession exchanges the refresh cookie for a new access token. Each
+// refresh token works once, so tabs take turns: a lock where the browser
+// has one, and one request at a time within this tab.
+export function refreshSession(): Promise<boolean> {
+  if (!refreshing) {
+    const run = async () => {
+      const res = await fetch("/api/v1/auth/token?grant_type=refresh_token", { method: "POST" });
+      if (!res.ok) return false;
+      applySession(await res.json());
+      return true;
+    };
+    const locked = navigator.locks ? navigator.locks.request("flobase-refresh", run) : run();
+    refreshing = locked.catch(() => false).finally(() => (refreshing = null));
+  }
+  return refreshing;
+}
+
+export async function signOut(scope: "local" | "global" = "local") {
+  clearTimeout(refreshTimer);
+  if (usingSession) {
+    await fetch(`/api/v1/auth/logout?scope=${scope}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${memoryToken}` },
+    }).catch(() => undefined);
+  }
+  setToken("");
+}
+
+async function authRequest(path: string, body: unknown): Promise<User> {
+  const res = await rawRequest("POST", `/auth/${path}`, body, false);
+  const session = res as SessionResponse;
+  applySession(session);
+  return session.user;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -309,15 +395,24 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  return rawRequest(method, path, body, true) as Promise<T>;
+}
+
+async function rawRequest(method: string, path: string, body: unknown, retry: boolean): Promise<unknown> {
   const res = await fetch(`/api/v1${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${memoryToken}`,
+      ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}),
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
+  // An access token can run out while the tab sleeps: renew it once and
+  // try again.
+  if (res.status === 401 && retry && usingSession && (await refreshSession())) {
+    return rawRequest(method, path, body, false);
+  }
   if (!res.ok) {
     let message = `Request failed (${res.status}).`;
     let detail;
@@ -330,14 +425,28 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     }
     throw new ApiError(res.status, message, detail);
   }
-  if (res.status === 204 || (res.status === 202 && method === "DELETE")) return undefined as T;
+  if (res.status === 204 || (res.status === 202 && method === "DELETE")) return undefined;
   const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  return text ? JSON.parse(text) : undefined;
 }
 
 export const api = {
   config: () => request<ServerConfig>("GET", "/config"),
-  me: () => request<{ role: string }>("GET", "/me"),
+  me: () => request<Me>("GET", "/me"),
+  authStatus: () => request<{ setup_required: boolean }>("GET", "/auth/status"),
+  setupOwner: (input: { api_token: string; email: string; name: string; password: string }) => authRequest("setup", input),
+  signIn: (email: string, password: string) => authRequest("token?grant_type=password", { email, password }),
+  inviteInfo: (token: string) => request<{ email: string; role: Invite["role"] }>("GET", `/auth/invites/${encodeURIComponent(token)}`),
+  acceptInvite: (token: string, name: string, password: string) =>
+    authRequest(`invites/${encodeURIComponent(token)}/accept`, { name, password }),
+  updateMe: (name: string) => request<User>("PATCH", "/me", { name }),
+  changePassword: (current_password: string, new_password: string) =>
+    request<void>("POST", "/me/password", { current_password, new_password }),
+  team: () => request<{ users: User[]; invites: Invite[] }>("GET", "/team"),
+  invite: (email: string, role: Invite["role"]) => request<{ invite: Invite; token: string }>("POST", "/team/invites", { email, role }),
+  deleteInvite: (id: string) => request<void>("DELETE", `/team/invites/${id}`),
+  setRole: (id: string, role: Invite["role"]) => request<void>("PATCH", `/team/users/${id}`, { role }),
+  removeUser: (id: string) => request<void>("DELETE", `/team/users/${id}`),
   catalog: () => request<Catalog>("GET", "/catalog"),
   projects: () => request<Project[]>("GET", "/projects"),
   project: (ref: string) => request<Project>("GET", `/projects/${ref}`),

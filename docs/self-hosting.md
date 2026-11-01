@@ -86,7 +86,7 @@ docker compose up -d
 
 ## Sign in and create a project
 
-Open `http://<server>:28470`, sign in with the API token the installer printed (also `FLOBASE_API_TOKEN` in `.env`), and click **+ Add** on the Projects page. The first project on each engine downloads that engine's images, which takes a few minutes; after that a Postgres project is ready in under a minute.
+Open `http://<server>:28470` and create the owner account: enter the API token the installer printed (also `FLOBASE_API_TOKEN` in `.env`), your email and a password. Invite the rest of your team under **Team**. Then click **+ Add** on the Projects page. The first project on each engine downloads that engine's images, which takes a few minutes; after that a Postgres project is ready in under a minute.
 
 Use a Postgres project from your app with the Supabase client libraries:
 
@@ -108,7 +108,7 @@ cd /data/flobase && docker compose up -d
 
 | Variable | What it does |
 | --- | --- |
-| `FLOBASE_API_TOKEN` | Admin token for the dashboard and API. Anyone with it controls the server's Docker; keep it secret. |
+| `FLOBASE_API_TOKEN` | Owner-level token for the API, the CLI and creating the first account. Anyone with it controls the server's Docker; keep it secret. |
 | `FLOBASE_PLATFORM_DB_PASSWORD` | Password of FloBase's own database. Do not change it after install. |
 | `FLOBASE_MODE` | `self-hosted` (default) or `cloud` (plans with prices and cloud regions). |
 | `FLOBASE_PUBLIC_HOST` | Host your apps use for direct database connections. |
