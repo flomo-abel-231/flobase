@@ -87,6 +87,15 @@ Customers pick a location for each project. Besides the machine FloBase runs on,
 - **SSH**: `ssh://root@203.0.113.10` and a private key; FloBase talks to the Docker socket through the SSH connection, like `docker -H ssh://`. Paste the server's host key (`ssh-keyscan -t ed25519 <host>`) or let FloBase trust the one it sees first.
 - **TLS**: `tcp://203.0.113.10:2376` with `dockerd --tlsverify`, and the CA, client certificate and client key.
 
+To prepare a fresh Ubuntu or Debian server, run as root on it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/flomo-abel-231/flobase/main/scripts/region-server.sh | \
+  bash -s -- --control-plane <your FloBase's IP> --key "$(cat flobase-region.pub)"
+```
+
+It installs Docker, adds a `flobase` user that signs in with that key only, turns off SSH passwords, limits the relay port to the control plane (in Docker's own firewall chain, since Docker-published ports skip ufw) and prints what to paste into the form.
+
 When the server is added, FloBase starts a **relay** there: a stock nginx container that joins every project network on that server and forwards TLS connections to the service named in them. The control plane and the gateway reach REST, auth and the SQL editor through it, and only they get in: both sides use certificates FloBase made for this server, and each accepts only the other's. Open the relay port (default 28474) to your FloBase's address only; customers' database ports are published as on the local host. New regions start closed: press **Check**, then **Open** to offer them. A region's **cost multiplier** scales its prices for servers that cost more there. A project stays on its region's server for its whole life, including backups, restores, password resets and logs; a region server can be removed once it has no projects.
 
 ## Develop
