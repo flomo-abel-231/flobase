@@ -154,7 +154,13 @@ func (s *Server) tools() []assistantTool {
 			},
 		},
 		{
-			Tool: llm.Tool{Name: "list_tables", Description: "List a Postgres project's tables and views in one schema (public unless given), with row estimates and whether row-level security is on.",
+			Tool:  llm.Tool{Name: "list_schemas", Description: "List a Postgres project's schemas with how many tables each has. Protected ones belong to FloBase (auth, storage and the like) and are read-only.", Properties: props("ref", refProp), Required: []string{"ref"}},
+			risk:  fixed(riskRead),
+			title: onRef("List schemas in"),
+			run:   get(projectPath("/schemas")),
+		},
+		{
+			Tool: llm.Tool{Name: "list_tables", Description: "List a Postgres project's tables and views in one schema (public unless given), with row estimates and whether row-level security is on. A row_estimate of null means not yet counted, not empty; use run_sql with count(*) for exact numbers. If the schema has no tables, call list_schemas before saying the database is empty.",
 				Properties: props("ref", refProp, "schema", strProp("A schema name; default public.")), Required: []string{"ref"}},
 			risk:  fixed(riskRead),
 			title: onRef("List tables in"),

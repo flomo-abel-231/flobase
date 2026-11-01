@@ -2,6 +2,12 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **The assistant looks again instead of trusting an old answer.** It now checks the database with its tools each time you ask about data or tables, rather than repeating what it found earlier in the chat (which kept saying "no tables" after an app had created them).
+- New assistant tool `list_schemas`; the assistant checks other schemas before calling a database empty.
+- Tables Postgres hasn't counted yet report `row_estimate: null` instead of 0, so they no longer look empty.
+
 ## 0.9.4 — 2026-11-01
 
 - **Cloud mode: paid plans stay closed until payments are set up.** With `FLOBASE_MODE=cloud`, Starter, Pro and Business show "Coming soon" on the new-project form and the API turns them down, so people who sign up can start on Free only. The platform's owner can still use every plan. Self-hosted FloBase is unchanged.

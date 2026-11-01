@@ -268,7 +268,7 @@ type tableInfo struct {
 	Name     string    `json:"name"`
 	Kind     string    `json:"kind"` // table or view
 	RLS      bool      `json:"rls"`
-	Estimate int64     `json:"row_estimate"`
+	Estimate *int64    `json:"row_estimate"` // nil until Postgres has counted the table
 	Columns  []colInfo `json:"columns,omitempty"`
 }
 
@@ -370,7 +370,7 @@ func (s *Server) listTables(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := conn.Query(r.Context(), `
 		select c.relname, case when c.relkind in ('v', 'm') then 'view' else 'table' end,
-			c.relrowsecurity, greatest(c.reltuples, 0)::bigint
+			c.relrowsecurity, case when c.reltuples < 0 then null else c.reltuples::bigint end
 		from pg_class c join pg_namespace n on n.oid = c.relnamespace
 		where n.nspname = $1 and c.relkind in ('r', 'p', 'v', 'm')
 		order by c.relname`, schema)
