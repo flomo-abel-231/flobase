@@ -2,7 +2,7 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.9.5 — 2026-11-01
 
 - **The assistant looks again instead of trusting an old answer.** It now checks the database with its tools each time you ask about data or tables, rather than repeating what it found earlier in the chat (which kept saying "no tables" after an app had created them).
 - New assistant tool `list_schemas`; the assistant checks other schemas before calling a database empty.
