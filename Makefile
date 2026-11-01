@@ -12,7 +12,7 @@ env: ## Write .env with random secrets (keeps an existing .env)
 
 COMPOSE_DEV = docker compose -f docker-compose.yml -f docker-compose.build.yml
 
-up: env ## Build from source and start FloBase on http://localhost:8080
+up: env ## Build from source and start FloBase on http://localhost:28470
 	FLOBASE_VERSION=dev $(COMPOSE_DEV) up -d --build
 
 down: ## Stop FloBase (project databases keep running)
@@ -42,11 +42,11 @@ dev-db:
 	docker run -d --name flobase-dev-db -p 5433:5432 \
 	  -e POSTGRES_USER=flobase -e POSTGRES_PASSWORD=flobase -e POSTGRES_DB=flobase postgres:17-alpine
 
-dev-api: ## Run the API on :8080 against the dev database
+dev-api: ## Run the API on :28470 against the dev database
 	cd control-plane && FLOBASE_API_TOKEN=$${FLOBASE_API_TOKEN:-dev-token-change-me} \
 	  FLOBASE_MODE=$${FLOBASE_MODE:-cloud} FLOBASE_DOCKER_SOCKET=$(DOCKER_SOCKET) go run ./cmd/flobase-api
 
-dev-dashboard: ## Run the dashboard on :5173, proxying /api to :8080
+dev-dashboard: ## Run the dashboard on :5173, proxying /api to :28470
 	npm run dev
 
 clean:

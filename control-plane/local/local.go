@@ -296,17 +296,23 @@ func (m *Manager) install(ctx context.Context, version string) error {
 		if err := os.WriteFile(m.envPath(), tmpl, 0o600); err != nil {
 			return err
 		}
+		dash, gw := freePorts()
+		if dash != defaultPort {
+			m.step("Ports %d and %d are taken; using %d and %d", defaultPort, defaultPort+1, dash, gw)
+		}
 		if err := m.setEnv(map[string]string{
 			"FLOBASE_API_TOKEN": secret(), "FLOBASE_PLATFORM_DB_PASSWORD": secret(),
-			"FLOBASE_PUBLIC_HOST": "localhost", "FLOBASE_GATEWAY_URL": "http://localhost:8000",
-			"FLOBASE_PORT": "8080", "FLOBASE_GATEWAY_PORT": "8000",
+			"FLOBASE_PUBLIC_HOST": "localhost", "FLOBASE_GATEWAY_URL": fmt.Sprintf("http://localhost:%d", gw),
+			"FLOBASE_PORT": strconv.Itoa(dash), "FLOBASE_GATEWAY_PORT": strconv.Itoa(gw),
 			// The desktop app and CLI update the stack themselves.
 			"FLOBASE_AUTO_UPDATE": "false", "FLOBASE_INSTALL_DIR": "",
 		}); err != nil {
 			return err
 		}
 	}
-	return m.setEnv(map[string]string{"FLOBASE_VERSION": version})
+	// Container names of their own, so a server install or a source
+	// checkout can run on the same Docker engine.
+	return m.setEnv(map[string]string{"FLOBASE_VERSION": version, "FLOBASE_NAME": project})
 }
 
 // --- lifecycle -----------------------------------------------------------
@@ -321,11 +327,35 @@ type Status struct {
 	Dir          string `json:"dir"`
 }
 
+// FloBase's default host ports: the dashboard and, one above, the project
+// APIs. Uncommon on purpose; 8080, 8000, 3000 and the like are usually
+// taken by other development tools.
+const defaultPort = 28470
+
+// freePorts picks the first pair from 28470/28471 upwards where both ports
+// are free on this computer.
+func freePorts() (dashboard, gateway int) {
+	free := func(p int) bool {
+		l, err := net.Listen("tcp", ":"+strconv.Itoa(p))
+		if err != nil {
+			return false
+		}
+		l.Close()
+		return true
+	}
+	for p := defaultPort; p < defaultPort+40; p += 2 {
+		if free(p) && free(p+1) {
+			return p, p + 1
+		}
+	}
+	return defaultPort, defaultPort + 1
+}
+
 func (m *Manager) port() string {
 	if p := m.Env()["FLOBASE_PORT"]; p != "" {
 		return p
 	}
-	return "8080"
+	return strconv.Itoa(defaultPort)
 }
 
 // DashboardURL is where the dashboard answers. With signIn, the API token
@@ -393,26 +423,11 @@ func (m *Manager) portsFree(ctx context.Context) error {
 	return nil
 }
 
-// otherStack names another FloBase using this Docker engine (a server
-// install, or a source checkout's `make up`), which holds the same
-// container names and ports; "" when there is none.
-func (m *Manager) otherStack(ctx context.Context) string {
-	out, err := m.docker(ctx, "inspect", "-f", `{{index .Config.Labels "com.docker.compose.project"}}|{{.State.Running}}`, "flobase-control-plane")
-	if err != nil {
-		return ""
-	}
-	proj, running, _ := strings.Cut(strings.TrimSpace(out), "|")
-	if proj == project || running != "true" {
-		return ""
-	}
-	return proj
-}
-
 func (m *Manager) Status(ctx context.Context) Status {
 	env := m.Env()
 	return Status{
 		Installed:    env["FLOBASE_API_TOKEN"] != "",
-		Running:      m.otherStack(ctx) == "" && m.healthy(ctx),
+		Running:      m.healthy(ctx),
 		Version:      env["FLOBASE_VERSION"],
 		DashboardURL: m.DashboardURL(false),
 		GatewayURL:   env["FLOBASE_GATEWAY_URL"],
@@ -454,13 +469,6 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 	if err := m.portsFree(ctx); err != nil {
 		return err
-	}
-	if other := m.otherStack(ctx); other != "" {
-		return fmt.Errorf("another FloBase (Compose project %q) is running on this Docker engine and uses the same ports; stop it first with: docker compose -p %s stop", other, other)
-	}
-	// A stopped container left by another FloBase would block the names.
-	if out, err := m.docker(ctx, "inspect", "-f", `{{index .Config.Labels "com.docker.compose.project"}}`, "flobase-control-plane"); err == nil && strings.TrimSpace(out) != project {
-		_, _ = m.docker(ctx, "rm", "flobase-control-plane", "flobase-gateway")
 	}
 	if out, _ := m.docker(ctx, "image", "ls", "-q", "ghcr.io/flomo-abel-231/flobase"); strings.TrimSpace(out) == "" {
 		m.step("Starting FloBase %s (downloading about 1 GB the first time)", m.Env()["FLOBASE_VERSION"])

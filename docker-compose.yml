@@ -25,7 +25,9 @@ services:
 
   flobase:
     image: ${FLOBASE_IMAGE:-ghcr.io/flomo-abel-231/flobase}:${FLOBASE_VERSION:-latest}
-    container_name: flobase-control-plane
+    # FLOBASE_NAME keeps two FloBases on one Docker engine apart (desktop
+    # installs use flobase-local); the control plane finds these by name.
+    container_name: ${FLOBASE_NAME:-flobase}-control-plane
     restart: unless-stopped
     depends_on:
       platform-db:
@@ -36,8 +38,8 @@ services:
       FLOBASE_DATABASE_URL: postgres://flobase:${FLOBASE_PLATFORM_DB_PASSWORD}@platform-db:5432/flobase
       FLOBASE_PUBLIC_HOST: ${FLOBASE_PUBLIC_HOST:-localhost}
       FLOBASE_MARKUP: ${FLOBASE_MARKUP:-1.6}
-      FLOBASE_GATEWAY_URL: ${FLOBASE_GATEWAY_URL:-http://localhost:8000}
-      FLOBASE_ATTACH: flobase-control-plane,flobase-gateway
+      FLOBASE_GATEWAY_URL: ${FLOBASE_GATEWAY_URL:-http://localhost:28471}
+      FLOBASE_ATTACH: ${FLOBASE_NAME:-flobase}-control-plane,${FLOBASE_NAME:-flobase}-gateway
       # Off-site backup copies; leave the bucket empty to keep backups on this machine only.
       FLOBASE_BACKUP_S3_ENDPOINT: ${FLOBASE_BACKUP_S3_ENDPOINT:-}
       FLOBASE_BACKUP_S3_REGION: ${FLOBASE_BACKUP_S3_REGION:-}
@@ -57,7 +59,7 @@ services:
       timeout: 3s
       retries: 12
     ports:
-      - "${FLOBASE_PORT:-8080}:8080"
+      - "${FLOBASE_PORT:-28470}:8080"
     volumes:
       # The provisioner creates project databases through the Docker API.
       # Anyone with this socket controls the host: keep the API token secret.
@@ -67,7 +69,7 @@ services:
   # It only reads the platform database and never sits behind the control plane.
   gateway:
     image: ${FLOBASE_IMAGE:-ghcr.io/flomo-abel-231/flobase}:${FLOBASE_VERSION:-latest}
-    container_name: flobase-gateway
+    container_name: ${FLOBASE_NAME:-flobase}-gateway
     restart: unless-stopped
     entrypoint: ["flobase-gateway"]
     depends_on:
@@ -76,7 +78,7 @@ services:
     environment:
       FLOBASE_DATABASE_URL: postgres://flobase:${FLOBASE_PLATFORM_DB_PASSWORD}@platform-db:5432/flobase
     ports:
-      - "${FLOBASE_GATEWAY_PORT:-8000}:8000"
+      - "${FLOBASE_GATEWAY_PORT:-28471}:8000"
 
 volumes:
   platform-db:

@@ -25,7 +25,7 @@ type Config struct {
 	Version    string
 	APIToken   string
 	Markup     float64
-	GatewayURL string // public base URL of the API gateway, e.g. http://localhost:8000
+	GatewayURL string // public base URL of the API gateway, e.g. http://localhost:28471
 	// Shown in the dashboard; credentials stay in the provisioner.
 	OffsiteBucket    string
 	OffsiteEncrypted bool
