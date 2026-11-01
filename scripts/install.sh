@@ -11,6 +11,8 @@
 #   FLOBASE_AUTO_UPDATE   install new releases automatically (default: true)
 #   FLOBASE_PORT          dashboard port (default: 28470)
 #   FLOBASE_GATEWAY_PORT  project API port (default: 28471)
+#   FLOBASE_OWNER_EMAIL   your email: create the owner account with it,
+#                         without the API token
 set -euo pipefail
 
 REPO="${FLOBASE_UPDATE_REPO:-flomo-abel-231/flobase}"
@@ -90,6 +92,9 @@ else
   setenv FLOBASE_GATEWAY_URL "http://$host:$GATEWAY_PORT"
   setenv FLOBASE_AUTO_UPDATE "$AUTO_UPDATE"
   say "Wrote .env with new secrets"
+fi
+if [ -n "${FLOBASE_OWNER_EMAIL:-}" ]; then
+  setenv FLOBASE_OWNER_EMAIL "$FLOBASE_OWNER_EMAIL"
 fi
 setenv FLOBASE_VERSION "$VERSION"
 setenv FLOBASE_INSTALL_DIR "$DIR"

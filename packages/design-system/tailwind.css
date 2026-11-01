@@ -9,6 +9,7 @@
 
 @theme inline {
   --color-surface: var(--surface);
+  --color-surface-panel: var(--surface-panel);
   --color-surface-raised: var(--surface-raised);
   --color-surface-sunken: var(--surface-sunken);
   --color-border: var(--border);
