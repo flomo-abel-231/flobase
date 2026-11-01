@@ -6,6 +6,8 @@ All notable changes to FloBase. Versions follow [semantic versioning](https://se
 
 - FloBase Desktop on macOS finds an installed Docker Desktop or OrbStack. Apps opened from Finder do not get the terminal's PATH, so 0.2.0 installed its own engine even when Docker Desktop was there.
 - FloBase checks that the dashboard on its port is its own, signing in with its token. When another program or FloBase holds port 8080 or 8000, it now says so instead of opening that program's page, where the sign-in link was rejected.
+- New default ports: the dashboard on **28470** and the project APIs on **28471**, instead of 8080 and 8000, which other development tools usually hold. Desktop and CLI installs pick the next free pair at first setup when those are taken. Existing installs keep the ports in their `.env`.
+- Desktop and CLI installs use their own container names (`flobase-local-…`, set by the new `FLOBASE_NAME`), so they run beside a server install or a source checkout on the same Docker engine.
 
 ## 0.2.0 — 2026-11-01
 

@@ -114,7 +114,7 @@ func run(log *slog.Logger) error {
 
 	cfg := api.Config{
 		Mode: mode, Version: version, APIToken: token, Markup: markup,
-		GatewayURL: env("FLOBASE_GATEWAY_URL", "http://localhost:8000"),
+		GatewayURL: env("FLOBASE_GATEWAY_URL", "http://localhost:28471"),
 		UpdateRepo: env("FLOBASE_UPDATE_REPO", "flomo-abel-231/flobase"),
 		AutoUpdate: os.Getenv("FLOBASE_AUTO_UPDATE") == "true",
 		InstallDir: os.Getenv("FLOBASE_INSTALL_DIR"),
@@ -140,7 +140,7 @@ func run(log *slog.Logger) error {
 		handler = withDashboard(handler, dir)
 	}
 
-	addr := env("FLOBASE_ADDR", ":8080")
+	addr := env("FLOBASE_ADDR", ":28470")
 	httpServer := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- httpServer.ListenAndServe() }()

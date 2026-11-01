@@ -9,16 +9,16 @@
 #   FLOBASE_INSTALL_DIR   where FloBase lives (default: /data/flobase)
 #   FLOBASE_PUBLIC_HOST   host or IP clients use (default: this machine's IP)
 #   FLOBASE_AUTO_UPDATE   install new releases automatically (default: true)
-#   FLOBASE_PORT          dashboard port (default: 8080)
-#   FLOBASE_GATEWAY_PORT  project API port (default: 8000)
+#   FLOBASE_PORT          dashboard port (default: 28470)
+#   FLOBASE_GATEWAY_PORT  project API port (default: 28471)
 set -euo pipefail
 
 REPO="${FLOBASE_UPDATE_REPO:-flomo-abel-231/flobase}"
 DIR="${FLOBASE_INSTALL_DIR:-/data/flobase}"
 VERSION="${FLOBASE_VERSION:-latest}"
 AUTO_UPDATE="${FLOBASE_AUTO_UPDATE:-true}"
-PORT="${FLOBASE_PORT:-8080}"
-GATEWAY_PORT="${FLOBASE_GATEWAY_PORT:-8000}"
+PORT="${FLOBASE_PORT:-28470}"
+GATEWAY_PORT="${FLOBASE_GATEWAY_PORT:-28471}"
 
 say() { printf '\033[1;33m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
