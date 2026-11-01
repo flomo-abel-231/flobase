@@ -2,6 +2,13 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Assistant:** bring your own model and API key, and let it work on your FloBase. It can list and create projects, run SQL, manage tables and auth users, take backups, restore, and read logs. Supports Claude (Anthropic) and any OpenAI-compatible service: OpenAI, Gemini, OpenRouter, Groq, Mistral, DeepSeek, xAI, or Ollama on your machine.
+- A permission setting decides what it may do without asking: read only, ask before changes (the default), or ask before deletes. Waiting actions show Approve and Refuse in the conversation. Passwords, keys and connection strings are never sent to the model.
+- **Automations:** prompts the assistant runs every hour, day or week, each run kept as a conversation.
+- The SQL API takes `"read_only": true` to run a query in read-only transactions.
+
 ## 0.3.0 — 2026-11-01
 
 - Storage locations: add S3-compatible buckets for off-site backup copies on the Off-site backups page, with presets for AWS S3, Cloudflare R2, Backblaze B2, Wasabi and MinIO. FloBase tests the bucket before saving, and you can switch the active location or stop copying without a restart. Before, off-site storage could only be set in `.env`, which still works and takes precedence.
