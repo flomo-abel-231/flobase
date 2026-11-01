@@ -2,7 +2,7 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.7.0 — 2026-11-01
 
 - **Workspaces:** each workspace is its own organization with its own projects, members, invites, assistant models, conversations and automations, and nothing is shared between them. The API checks membership on every project request. People can belong to several workspaces and switch in the sidebar; **Workspace** creates, renames and deletes them.
 - **Sign-up in the cloud:** anyone can create an account, which comes with a workspace named after their organization. No API token is needed to sign in. The platform owner is the account with `FLOBASE_OWNER_EMAIL`, or the first one. Regions, off-site backups and updates are under **Platform**, for the owner and platform admins only.
