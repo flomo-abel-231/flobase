@@ -115,7 +115,7 @@ cd /data/flobase && docker compose up -d
 | `FLOBASE_PUBLIC_HOST` | Host your apps use for direct database connections. |
 | `FLOBASE_GATEWAY_URL` | Public URL of the project APIs, shown to developers and used by auth emails. |
 | `FLOBASE_DASHBOARD_URL` | Public URL of the dashboard, for links in FloBase's emails. |
-| `FLOBASE_SMTP_HOST`, `FLOBASE_SMTP_PORT`, `FLOBASE_SMTP_USER`, `FLOBASE_SMTP_PASSWORD`, `FLOBASE_SMTP_FROM` | Mail server for FloBase's own emails, such as the cloud's free-plan deletion warnings. Port 465 uses TLS from the start; other ports use STARTTLS when offered. Without it, warnings appear in the dashboard only. |
+| `FLOBASE_SMTP_HOST`, `FLOBASE_SMTP_PORT`, `FLOBASE_SMTP_USER`, `FLOBASE_SMTP_PASSWORD`, `FLOBASE_SMTP_FROM` | Mail server for FloBase's own emails: password reset links, and the cloud's deletion and storage warnings. Without it, the sign-in page has no **Forgot password?** link. Port 465 uses TLS from the start; other ports use STARTTLS when offered. Without it, warnings appear in the dashboard only. |
 | `FLOBASE_PORT`, `FLOBASE_GATEWAY_PORT` | Host ports for the dashboard and the project APIs. |
 | `FLOBASE_AUTO_UPDATE` | `true` to install new releases automatically. |
 | `FLOBASE_VERSION` | The running release. Set by the installer and updater; change it only through `upgrade.sh`. |

@@ -2,6 +2,10 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Forgot password.** The sign-in page has a **Forgot password?** link when email is set up (`FLOBASE_SMTP_*`). It emails a one-time link, good for an hour, to choose a new password. Setting one signs out every other session and signs in. The answer is the same whether or not the address has an account, and each address can ask at most 3 times in 15 minutes.
+
 ## 0.11.0 — 2026-11-01
 
 - **Plan sizes are enforced in the cloud.** FloBase measures every database every 10 minutes. At 80% and 90% of its plan's size, the workspace's owners and admins get an email and a dashboard banner. Past 100% the database turns read-only (Postgres, MySQL and MongoDB-compatible): apps can read but writes are refused. The SQL editor and the table editor's delete still work, so people can make room. Writes come back once the database is under 95% of the plan, or at once after moving to a bigger plan. Self-hosted FloBase measures sizes but enforces nothing.

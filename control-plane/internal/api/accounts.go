@@ -91,6 +91,7 @@ func (s *Server) accountRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)
 	mux.HandleFunc("GET /api/v1/auth/invites/{token}", s.inviteInfo)
 	mux.HandleFunc("POST /api/v1/auth/invites/{token}/accept", s.acceptInvite)
+	s.passwordRoutes(mux)
 	mux.Handle("PATCH /api/v1/me", s.auth(s.updateMe))
 	mux.Handle("POST /api/v1/me/password", s.auth(s.changePassword))
 }
@@ -287,6 +288,7 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 	// once, with its API token, and grows by invitation.
 	writeJSON(w, http.StatusOK, map[string]bool{
 		"setup_required": n == 0 && !s.billing(), "signup": s.billing(), "owner_email": s.cfg.OwnerEmail != "",
+		"password_reset": s.cfg.Mail.enabled(),
 	})
 }
 
@@ -684,7 +686,11 @@ func (s *Server) dummyHash() []byte {
 	return a.dummy
 }
 
-func (s *Server) allowAttempt(key string) bool {
+func (s *Server) allowAttempt(key string) bool { return s.allowAttempts(key, signInAttempts) }
+
+// allowAttempts is whether key has had fewer than max failures in the
+// window.
+func (s *Server) allowAttempts(key string, max int) bool {
 	a := &s.accounts
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -700,7 +706,7 @@ func (s *Server) allowAttempt(key string) bool {
 	} else {
 		a.failures[key] = recent
 	}
-	return len(recent) < signInAttempts
+	return len(recent) < max
 }
 
 func (s *Server) failAttempt(key string) {
