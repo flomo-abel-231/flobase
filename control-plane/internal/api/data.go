@@ -169,6 +169,12 @@ func (s *Server) runPostgres(ctx context.Context, p store.Project, query string,
 		if _, err := conn.Exec(ctx, "set session characteristics as transaction read only"); err != nil {
 			return nil, err
 		}
+	} else if p.SizeState == sizeReadOnly {
+		// The SQL editor may write to a database over its plan's size, so
+		// people can delete data to get back under.
+		if _, err := conn.Exec(ctx, "set default_transaction_read_only = off"); err != nil {
+			return nil, err
+		}
 	}
 	all, err := conn.PgConn().Exec(ctx, query).ReadAll()
 	if err != nil {
@@ -217,6 +223,14 @@ func (s *Server) runMySQL(ctx context.Context, p store.Project, query string, re
 		if _, err := conn.ExecContext(ctx, "SET SESSION TRANSACTION READ ONLY"); err != nil {
 			return nil, err
 		}
+	} else if p.SizeState == sizeReadOnly {
+		// A read-only schema refuses even deletes, so lift it while the
+		// query runs; the size check puts it back if still needed.
+		lift, err := s.liftMySQL(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		defer lift()
 	}
 	rows, err := conn.QueryContext(ctx, query)
 	if err != nil {
@@ -440,6 +454,10 @@ func (s *Server) withTable(w http.ResponseWriter, r *http.Request, write bool, f
 		return
 	}
 	defer conn.Close(context.Background())
+	// Deleting rows is how a database that outgrew its plan gets back under.
+	if r.Method == http.MethodDelete && !s.writable(r.Context(), conn, p) {
+		return
+	}
 	schema, err := userSchema(r.Context(), conn, r)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "Schema not found.")

@@ -91,6 +91,8 @@ export interface Project {
   expires_at?: string;
   // The database's size when last measured.
   size_bytes?: number;
+  // How it stands against its plan's size; "readonly" refuses writes.
+  size_state: SizeState;
   created_at: string;
   updated_at: string;
   connection?: {
@@ -118,6 +120,8 @@ export interface QueryResponse {
   duration_ms: number;
 }
 
+export type SizeState = "" | "warn80" | "warn90" | "readonly";
+
 export interface StorageProject {
   ref: string;
   name: string;
@@ -126,6 +130,7 @@ export interface StorageProject {
   status: Status;
   plan_mb: number;
   used_bytes: number | null;
+  size_state: SizeState;
   expires_at?: string;
 }
 
@@ -608,6 +613,8 @@ export const api = {
   adminWorkspaces: () => request<AdminWorkspace[]>("GET", "/admin/workspaces"),
   setWorkspaceStorage: (id: string, limit_mb: number | null) => request<AdminWorkspace[]>("PUT", `/admin/workspaces/${id}/storage`, { limit_mb }),
   changePlan: (ref: string, plan: string) => request<Project>("PUT", `/projects/${ref}/plan`, { plan }),
+  adminWorkspaceProjects: (id: string) => request<WorkspaceStorage>("GET", `/admin/workspaces/${id}/projects`),
+  adminChangePlan: (ref: string, plan: string) => request<Project>("PUT", `/admin/projects/${ref}/plan`, { plan }),
   projects: () => request<Project[]>("GET", "/projects"),
   project: (ref: string) => request<Project>("GET", `/projects/${ref}`),
   createProject: (input: { name: string; engine: EngineId; region: string; plan: string }) =>

@@ -102,6 +102,22 @@ func (r *Router) SetPassword(ctx context.Context, s Spec, old string) error {
 	return d.SetPassword(ctx, s, old)
 }
 
+func (r *Router) SetReadOnly(ctx context.Context, s Spec, on bool) error {
+	d, err := r.project(ctx, s.Ref)
+	if err != nil {
+		return err
+	}
+	return d.SetReadOnly(ctx, s, on)
+}
+
+func (r *Router) MongoSize(ctx context.Context, s Spec) (int64, error) {
+	d, err := r.project(ctx, s.Ref)
+	if err != nil {
+		return 0, err
+	}
+	return d.MongoSize(ctx, s)
+}
+
 func (r *Router) Recreate(ctx context.Context, s Spec) error {
 	d, err := r.project(ctx, s.Ref)
 	if err != nil {

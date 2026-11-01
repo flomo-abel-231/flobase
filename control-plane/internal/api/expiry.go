@@ -106,19 +106,6 @@ func (s *Server) checkExpiry(ctx context.Context) {
 
 // warnExpiry emails a project's workspace owners and admins.
 func (s *Server) warnExpiry(ctx context.Context, p store.Project, left int) error {
-	if !s.cfg.Mail.enabled() {
-		return errNoMail
-	}
-	members, err := s.store.Members(ctx, p.WorkspaceID)
-	if err != nil {
-		return err
-	}
-	var to []string
-	for _, m := range members {
-		if m.WorkspaceRole == "owner" || m.WorkspaceRole == "admin" {
-			to = append(to, m.User.Email)
-		}
-	}
 	days := "days"
 	if left == 1 {
 		days = "day"
@@ -129,9 +116,5 @@ func (s *Server) warnExpiry(ctx context.Context, p store.Project, left int) erro
 		p.Name, p.Ref, p.ExpiresAt.UTC().Format("Monday 2 January 2006 at 15:04 UTC"), left, days)
 	fmt.Fprintf(&b, "Free projects are deleted %d days after they are created, together with their data. FloBase does not keep a copy.\n\n", freeDays)
 	b.WriteString("Back up your data before then. Free projects have no FloBase backups, so export it yourself: take the connection string from the project's Connect page and run pg_dump (Postgres), mysqldump (MySQL) or mongodump (MongoDB). You can start a new free project at any time and load your data into it, or move to a paid plan once they open.\n")
-	if s.cfg.DashboardURL != "" {
-		fmt.Fprintf(&b, "\nOpen the project: %s/#/project/%s\n", strings.TrimRight(s.cfg.DashboardURL, "/"), p.Ref)
-	}
-	b.WriteString("\n— FloBase\n")
-	return s.cfg.Mail.send(to, subject, b.String())
+	return s.notifyWorkspace(ctx, p, subject, b.String())
 }

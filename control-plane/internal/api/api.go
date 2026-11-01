@@ -118,9 +118,9 @@ func (s *Server) billing() bool { return s.cfg.Mode == "cloud" }
 
 // planOpen is whether a caller may start a project on a plan. FloBase does
 // not take payments yet, so in the cloud the paid plans stay closed to
-// everyone but the platform's owner.
+// everyone but the platform's owner and admins.
 func (s *Server) planOpen(r *http.Request, p catalog.Plan) bool {
-	return !s.billing() || p.Price == 0 || who(r).role() == "owner"
+	return !s.billing() || p.Price == 0 || who(r).platformAdmin()
 }
 
 // providers lists which regions this mode can show. Every region is a

@@ -64,6 +64,10 @@ export function StorageUsage() {
                   </span>
                 </div>
                 <Meter value={used / 1e6} max={p.plan_mb} label={`${p.name} storage`} />
+                {p.size_state === "readonly" && <span className="body-sm text-danger">Read-only: over its plan's size. Delete data or move to a bigger plan.</span>}
+                {(p.size_state === "warn80" || p.size_state === "warn90") && (
+                  <span className="body-sm text-warning">Over {p.size_state === "warn90" ? "90" : "80"}% of its plan's size.</span>
+                )}
                 {p.expires_at && (
                   <span className="body-sm text-warning">Deleted in {Math.max(daysUntil(p.expires_at), 0)} days (Free plan)</span>
                 )}
@@ -72,7 +76,9 @@ export function StorageUsage() {
           })}
         </div>
       )}
-      <p className="body-sm text-ink-muted">Database sizes are measured every hour.</p>
+      <p className="body-sm text-ink-muted">
+        Database sizes are measured every 10 minutes. A database that grows past its plan's size turns read-only until it fits again.
+      </p>
     </Card>
   );
 }
