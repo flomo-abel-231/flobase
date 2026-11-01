@@ -10,6 +10,9 @@
 # pulls the new images and restarts. If the new version is not healthy
 # within three minutes it puts the previous version back. Project databases
 # are separate containers and keep running throughout.
+#
+# FloBase Desktop and the flobase CLI install the same way in ~/.flobase,
+# where .env sets COMPOSE_PROJECT_NAME and FLOBASE_NAME.
 set -eu
 
 DIR="${FLOBASE_INSTALL_DIR:-$(cd "$(dirname "$0")" && pwd)}"
@@ -41,13 +44,15 @@ if [ "$VERSION" = latest ]; then
 fi
 VERSION="${VERSION#v}"
 OLD="$(sed -n 's/^FLOBASE_VERSION=//p' .env)"
+NAME="$(sed -n 's/^FLOBASE_NAME=//p' .env)"
+NAME="${NAME:-flobase}"
 BASE="https://github.com/$REPO/releases/download/v$VERSION"
 log "upgrading FloBase ${OLD:-unknown} to $VERSION"
 
 # 1. Back up the platform database (projects, keys, regions); keep 10.
 mkdir -p backups
 dump="backups/platform-$(date -u +%Y%m%dT%H%M%SZ)-from-${OLD:-unknown}.sql.gz"
-docker exec flobase-platform-db-1 pg_dump -U flobase -d flobase | gzip > "$dump"
+docker compose exec -T platform-db pg_dump -U flobase -d flobase | gzip > "$dump"
 log "platform database saved to $dump"
 # shellcheck disable=SC2012 # names are generated above, no odd characters
 ls -1t backups/platform-*.sql.gz | tail -n +11 | while read -r f; do rm -f "$f"; done
@@ -63,6 +68,7 @@ rollback() {
   log "upgrade failed; going back to ${OLD:-the previous version}"
   mv docker-compose.yml.prev docker-compose.yml
   mv .env.prev .env
+  rm -f upgrade.sh.new env.example.new
   docker compose up -d --remove-orphans || true
   log "rolled back. The platform database from before is in $dump"
   exit 1
@@ -77,7 +83,7 @@ docker compose up -d --remove-orphans || rollback
 
 # 4. Wait for the control plane to report healthy.
 i=0
-until [ "$(docker inspect -f '{{.State.Health.Status}}' flobase-control-plane 2> /dev/null)" = healthy ]; do
+until [ "$(docker inspect -f '{{.State.Health.Status}}' "$NAME-control-plane" 2> /dev/null)" = healthy ]; do
   i=$((i + 1))
   [ "$i" -lt 60 ] || rollback
   sleep 3
