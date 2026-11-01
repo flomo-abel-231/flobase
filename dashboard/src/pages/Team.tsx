@@ -12,7 +12,9 @@ export function Team({ me }: { me: Me }) {
   const [invites, setInvites] = useState<Invite[]>([]);
   const [error, setError] = useState("");
   const [link, setLink] = useState<{ email: string; url: string } | null>(null);
-  const canManage = me.role === "owner" || me.role === "admin";
+  // Roles here are roles in the current workspace.
+  const role = me.workspaces.find((w) => w.id === me.workspace)?.role;
+  const canManage = role === "owner" || role === "admin";
 
   const load = () =>
     api
@@ -40,8 +42,8 @@ export function Team({ me }: { me: Me }) {
   return (
     <div className="flex max-w-4xl flex-col gap-8">
       <PageHeader
-        title="Team"
-        subtitle="People who can sign in to this FloBase. Everyone signed in can use every project; the owner and admins also manage the team."
+        title="Members"
+        subtitle={`People in ${me.workspaces.find((w) => w.id === me.workspace)?.name ?? "this workspace"}. Members use its projects; its owner and admins also invite and manage people. Other workspaces cannot see them or their projects.`}
       />
       {error && <Notice tone="danger">{error}</Notice>}
 

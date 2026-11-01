@@ -18,12 +18,12 @@ import (
 // .env (FLOBASE_BACKUP_S3_*) takes precedence and is shown read-only.
 
 func (s *Server) storageRoutes(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/storages", s.auth(s.listStorages))
-	mux.Handle("POST /api/v1/storages/test", s.auth(s.testStorage))
-	mux.Handle("POST /api/v1/storages", s.auth(s.createStorage))
-	mux.Handle("POST /api/v1/storages/{id}/activate", s.auth(s.activateStorage))
-	mux.Handle("POST /api/v1/storages/deactivate", s.auth(s.deactivateStorage))
-	mux.Handle("DELETE /api/v1/storages/{id}", s.auth(s.deleteStorage))
+	mux.Handle("GET /api/v1/storages", s.platformAdmin(s.listStorages))
+	mux.Handle("POST /api/v1/storages/test", s.platformAdmin(s.testStorage))
+	mux.Handle("POST /api/v1/storages", s.platformAdmin(s.createStorage))
+	mux.Handle("POST /api/v1/storages/{id}/activate", s.platformAdmin(s.activateStorage))
+	mux.Handle("POST /api/v1/storages/deactivate", s.platformAdmin(s.deactivateStorage))
+	mux.Handle("DELETE /api/v1/storages/{id}", s.platformAdmin(s.deleteStorage))
 }
 
 func toOffsite(l store.StorageLocation) *provisioner.Offsite {

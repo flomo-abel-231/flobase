@@ -12,30 +12,34 @@ import (
 // LLMProvider is a language model someone added with their own API key.
 // The key stays on the server: the API never returns it.
 type LLMProvider struct {
-	ID        string
-	Name      string
-	Kind      string
-	Preset    string
-	BaseURL   string
-	APIKey    string
-	Model     string
-	Default   bool
-	CreatedAt time.Time
+	ID          string
+	WorkspaceID string
+	Name        string
+	Kind        string
+	Preset      string
+	BaseURL     string
+	APIKey      string
+	Model       string
+	Default     bool
+	CreatedAt   time.Time
 }
 
-const providerColumns = `id, name, kind, preset, base_url, api_key, model, is_default, created_at`
+const providerColumns = `id, workspace_id::text, name, kind, preset, base_url, api_key, model, is_default, created_at`
 
 func scanProvider(row pgx.Row) (LLMProvider, error) {
 	var p LLMProvider
-	err := row.Scan(&p.ID, &p.Name, &p.Kind, &p.Preset, &p.BaseURL, &p.APIKey, &p.Model, &p.Default, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.WorkspaceID, &p.Name, &p.Kind, &p.Preset, &p.BaseURL, &p.APIKey, &p.Model, &p.Default, &p.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, ErrNotFound
 	}
 	return p, err
 }
 
-func (s *Store) LLMProviders(ctx context.Context) ([]LLMProvider, error) {
-	rows, err := s.db.Query(ctx, `select `+providerColumns+` from llm_providers order by created_at`)
+// Every assistant query below names the workspace: models, keys, chats and
+// automations never cross from one workspace to another.
+
+func (s *Store) LLMProviders(ctx context.Context, ws string) ([]LLMProvider, error) {
+	rows, err := s.db.Query(ctx, `select `+providerColumns+` from llm_providers where workspace_id::text = $1 order by created_at`, ws)
 	if err != nil {
 		return nil, err
 	}
@@ -51,45 +55,48 @@ func (s *Store) LLMProviders(ctx context.Context) ([]LLMProvider, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) LLMProvider(ctx context.Context, id string) (LLMProvider, error) {
-	return scanProvider(s.db.QueryRow(ctx, `select `+providerColumns+` from llm_providers where id::text = $1`, id))
+func (s *Store) LLMProvider(ctx context.Context, ws, id string) (LLMProvider, error) {
+	return scanProvider(s.db.QueryRow(ctx, `select `+providerColumns+` from llm_providers
+		where id::text = $1 and workspace_id::text = $2`, id, ws))
 }
 
-func (s *Store) DefaultLLMProvider(ctx context.Context) (LLMProvider, error) {
-	return scanProvider(s.db.QueryRow(ctx, `select `+providerColumns+` from llm_providers where is_default`))
+func (s *Store) DefaultLLMProvider(ctx context.Context, ws string) (LLMProvider, error) {
+	return scanProvider(s.db.QueryRow(ctx, `select `+providerColumns+` from llm_providers
+		where is_default and workspace_id::text = $1`, ws))
 }
 
 // CreateLLMProvider saves a provider; the first one becomes the default.
 func (s *Store) CreateLLMProvider(ctx context.Context, p LLMProvider) (LLMProvider, error) {
 	return scanProvider(s.db.QueryRow(ctx, `
-		insert into llm_providers (name, kind, preset, base_url, api_key, model, is_default)
-		values ($1, $2, $3, $4, $5, $6, not exists (select 1 from llm_providers where is_default))
+		insert into llm_providers (workspace_id, name, kind, preset, base_url, api_key, model, is_default)
+		values ($7::uuid, $1, $2, $3, $4, $5, $6,
+			not exists (select 1 from llm_providers where is_default and workspace_id = $7::uuid))
 		returning `+providerColumns,
-		p.Name, p.Kind, p.Preset, p.BaseURL, p.APIKey, p.Model))
+		p.Name, p.Kind, p.Preset, p.BaseURL, p.APIKey, p.Model, p.WorkspaceID))
 }
 
 // UpdateLLMProvider changes the name and model; a new key replaces the old
 // one only when given.
-func (s *Store) UpdateLLMProvider(ctx context.Context, id, name, model, apiKey string) error {
+func (s *Store) UpdateLLMProvider(ctx context.Context, ws, id, name, model, apiKey string) error {
 	tag, err := s.db.Exec(ctx, `
 		update llm_providers set name = $2, model = $3, api_key = case when $4 = '' then api_key else $4 end
-		where id::text = $1`, id, name, model, apiKey)
+		where id::text = $1 and workspace_id::text = $5`, id, name, model, apiKey, ws)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
 	return err
 }
 
-func (s *Store) SetDefaultLLMProvider(ctx context.Context, id string) error {
+func (s *Store) SetDefaultLLMProvider(ctx context.Context, ws, id string) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `update llm_providers set is_default = false where is_default`); err != nil {
+	if _, err := tx.Exec(ctx, `update llm_providers set is_default = false where is_default and workspace_id::text = $1`, ws); err != nil {
 		return err
 	}
-	tag, err := tx.Exec(ctx, `update llm_providers set is_default = true where id::text = $1`, id)
+	tag, err := tx.Exec(ctx, `update llm_providers set is_default = true where id::text = $1 and workspace_id::text = $2`, id, ws)
 	if err != nil {
 		return err
 	}
@@ -101,8 +108,8 @@ func (s *Store) SetDefaultLLMProvider(ctx context.Context, id string) error {
 
 // DeleteLLMProvider removes a provider; when it was the default, the oldest
 // remaining one takes over.
-func (s *Store) DeleteLLMProvider(ctx context.Context, id string) error {
-	tag, err := s.db.Exec(ctx, `delete from llm_providers where id::text = $1`, id)
+func (s *Store) DeleteLLMProvider(ctx context.Context, ws, id string) error {
+	tag, err := s.db.Exec(ctx, `delete from llm_providers where id::text = $1 and workspace_id::text = $2`, id, ws)
 	if err != nil {
 		return err
 	}
@@ -111,8 +118,8 @@ func (s *Store) DeleteLLMProvider(ctx context.Context, id string) error {
 	}
 	_, err = s.db.Exec(ctx, `
 		update llm_providers set is_default = true
-		where id = (select id from llm_providers order by created_at limit 1)
-		  and not exists (select 1 from llm_providers where is_default)`)
+		where id = (select id from llm_providers where workspace_id::text = $1 order by created_at limit 1)
+		  and not exists (select 1 from llm_providers where is_default and workspace_id::text = $1)`, ws)
 	return err
 }
 
@@ -136,6 +143,7 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 // waiting for approval. Both are JSON the api package owns.
 type Chat struct {
 	ID           string
+	WorkspaceID  string
 	Title        string
 	ProviderID   *string
 	AutomationID *string
@@ -146,11 +154,11 @@ type Chat struct {
 	UpdatedAt    time.Time
 }
 
-const chatColumns = `id, title, provider_id::text, automation_id::text, status, transcript, state, created_at, updated_at`
+const chatColumns = `id, workspace_id::text, title, provider_id::text, automation_id::text, status, transcript, state, created_at, updated_at`
 
 func scanChat(row pgx.Row) (Chat, error) {
 	var c Chat
-	err := row.Scan(&c.ID, &c.Title, &c.ProviderID, &c.AutomationID, &c.Status, &c.Transcript, &c.State, &c.CreatedAt, &c.UpdatedAt)
+	err := row.Scan(&c.ID, &c.WorkspaceID, &c.Title, &c.ProviderID, &c.AutomationID, &c.Status, &c.Transcript, &c.State, &c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, ErrNotFound
 	}
@@ -158,10 +166,10 @@ func scanChat(row pgx.Row) (Chat, error) {
 }
 
 // Chats lists recent conversations without their contents.
-func (s *Store) Chats(ctx context.Context, limit int) ([]Chat, error) {
+func (s *Store) Chats(ctx context.Context, ws string, limit int) ([]Chat, error) {
 	rows, err := s.db.Query(ctx, `
-		select id, title, provider_id::text, automation_id::text, status, '[]'::jsonb, '{}'::jsonb, created_at, updated_at
-		from assistant_chats order by updated_at desc limit $1`, limit)
+		select id, workspace_id::text, title, provider_id::text, automation_id::text, status, '[]'::jsonb, '{}'::jsonb, created_at, updated_at
+		from assistant_chats where workspace_id::text = $2 order by updated_at desc limit $1`, limit, ws)
 	if err != nil {
 		return nil, err
 	}
@@ -177,15 +185,23 @@ func (s *Store) Chats(ctx context.Context, limit int) ([]Chat, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) Chat(ctx context.Context, id string) (Chat, error) {
+// Chat reads a conversation of a workspace.
+func (s *Store) Chat(ctx context.Context, ws, id string) (Chat, error) {
+	return scanChat(s.db.QueryRow(ctx, `select `+chatColumns+` from assistant_chats
+		where id::text = $1 and workspace_id::text = $2`, id, ws))
+}
+
+// ChatByID reads a conversation for the background worker, which takes its
+// workspace from the record.
+func (s *Store) ChatByID(ctx context.Context, id string) (Chat, error) {
 	return scanChat(s.db.QueryRow(ctx, `select `+chatColumns+` from assistant_chats where id::text = $1`, id))
 }
 
 func (s *Store) CreateChat(ctx context.Context, c Chat) (Chat, error) {
 	return scanChat(s.db.QueryRow(ctx, `
-		insert into assistant_chats (title, provider_id, automation_id, status, transcript, state)
-		values ($1, $2::uuid, $3::uuid, $4, $5, $6) returning `+chatColumns,
-		c.Title, c.ProviderID, c.AutomationID, c.Status, c.Transcript, c.State))
+		insert into assistant_chats (workspace_id, title, provider_id, automation_id, status, transcript, state)
+		values ($7::uuid, $1, $2::uuid, $3::uuid, $4, $5, $6) returning `+chatColumns,
+		c.Title, c.ProviderID, c.AutomationID, c.Status, c.Transcript, c.State, c.WorkspaceID))
 }
 
 func (s *Store) SaveChat(ctx context.Context, c Chat) error {
@@ -200,8 +216,8 @@ func (s *Store) RenameChat(ctx context.Context, id, title string) error {
 	return err
 }
 
-func (s *Store) DeleteChat(ctx context.Context, id string) error {
-	tag, err := s.db.Exec(ctx, `delete from assistant_chats where id::text = $1`, id)
+func (s *Store) DeleteChat(ctx context.Context, ws, id string) error {
+	tag, err := s.db.Exec(ctx, `delete from assistant_chats where id::text = $1 and workspace_id::text = $2`, id, ws)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
@@ -216,23 +232,24 @@ func (s *Store) FailRunningChats(ctx context.Context) error {
 
 // Automation runs the assistant on a prompt every hour, day or week.
 type Automation struct {
-	ID         string
-	Name       string
-	Prompt     string
-	ProviderID *string
-	Every      string
-	Enabled    bool
-	NextRunAt  time.Time
-	LastRunAt  *time.Time
-	LastChatID *string
-	CreatedAt  time.Time
+	ID          string
+	WorkspaceID string
+	Name        string
+	Prompt      string
+	ProviderID  *string
+	Every       string
+	Enabled     bool
+	NextRunAt   time.Time
+	LastRunAt   *time.Time
+	LastChatID  *string
+	CreatedAt   time.Time
 }
 
-const automationColumns = `id, name, prompt, provider_id::text, every, enabled, next_run_at, last_run_at, last_chat_id::text, created_at`
+const automationColumns = `id, workspace_id::text, name, prompt, provider_id::text, every, enabled, next_run_at, last_run_at, last_chat_id::text, created_at`
 
 func scanAutomation(row pgx.Row) (Automation, error) {
 	var a Automation
-	err := row.Scan(&a.ID, &a.Name, &a.Prompt, &a.ProviderID, &a.Every, &a.Enabled, &a.NextRunAt, &a.LastRunAt, &a.LastChatID, &a.CreatedAt)
+	err := row.Scan(&a.ID, &a.WorkspaceID, &a.Name, &a.Prompt, &a.ProviderID, &a.Every, &a.Enabled, &a.NextRunAt, &a.LastRunAt, &a.LastChatID, &a.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return a, ErrNotFound
 	}
@@ -256,8 +273,8 @@ func (s *Store) automations(ctx context.Context, where string, args ...any) ([]A
 	return out, rows.Err()
 }
 
-func (s *Store) Automations(ctx context.Context) ([]Automation, error) {
-	return s.automations(ctx, "")
+func (s *Store) Automations(ctx context.Context, ws string) ([]Automation, error) {
+	return s.automations(ctx, "where workspace_id::text = $1", ws)
 }
 
 // DueAutomations are enabled automations whose next run has come.
@@ -265,21 +282,22 @@ func (s *Store) DueAutomations(ctx context.Context) ([]Automation, error) {
 	return s.automations(ctx, "where enabled and next_run_at <= now()")
 }
 
-func (s *Store) Automation(ctx context.Context, id string) (Automation, error) {
-	return scanAutomation(s.db.QueryRow(ctx, `select `+automationColumns+` from automations where id::text = $1`, id))
+func (s *Store) Automation(ctx context.Context, ws, id string) (Automation, error) {
+	return scanAutomation(s.db.QueryRow(ctx, `select `+automationColumns+` from automations
+		where id::text = $1 and workspace_id::text = $2`, id, ws))
 }
 
 func (s *Store) CreateAutomation(ctx context.Context, a Automation) (Automation, error) {
 	return scanAutomation(s.db.QueryRow(ctx, `
-		insert into automations (name, prompt, provider_id, every, enabled, next_run_at)
-		values ($1, $2, $3::uuid, $4, $5, $6) returning `+automationColumns,
-		a.Name, a.Prompt, a.ProviderID, a.Every, a.Enabled, a.NextRunAt))
+		insert into automations (workspace_id, name, prompt, provider_id, every, enabled, next_run_at)
+		values ($7::uuid, $1, $2, $3::uuid, $4, $5, $6) returning `+automationColumns,
+		a.Name, a.Prompt, a.ProviderID, a.Every, a.Enabled, a.NextRunAt, a.WorkspaceID))
 }
 
 func (s *Store) UpdateAutomation(ctx context.Context, a Automation) error {
 	tag, err := s.db.Exec(ctx, `
 		update automations set name = $2, prompt = $3, provider_id = $4::uuid, every = $5, enabled = $6, next_run_at = $7
-		where id::text = $1`, a.ID, a.Name, a.Prompt, a.ProviderID, a.Every, a.Enabled, a.NextRunAt)
+		where id::text = $1 and workspace_id::text = $8`, a.ID, a.Name, a.Prompt, a.ProviderID, a.Every, a.Enabled, a.NextRunAt, a.WorkspaceID)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
@@ -294,8 +312,8 @@ func (s *Store) AutomationRan(ctx context.Context, id, chatID string, next time.
 	return err
 }
 
-func (s *Store) DeleteAutomation(ctx context.Context, id string) error {
-	tag, err := s.db.Exec(ctx, `delete from automations where id::text = $1`, id)
+func (s *Store) DeleteAutomation(ctx context.Context, ws, id string) error {
+	tag, err := s.db.Exec(ctx, `delete from automations where id::text = $1 and workspace_id::text = $2`, id, ws)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}

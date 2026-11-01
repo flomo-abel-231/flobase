@@ -51,17 +51,28 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	return n, err
 }
 
-// CreateOwner adds the first account. It fails with ErrExists once any
-// account exists, so two people setting up at once cannot both win.
-func (s *Store) CreateOwner(ctx context.Context, email, name, hash string) (User, error) {
-	u, err := scanUser(s.db.QueryRow(ctx, `
+// CreateOwner adds the first account, the platform owner, with its
+// workspace. It fails with ErrExists once any account exists, so two
+// people setting up at once cannot both win.
+func (s *Store) CreateOwner(ctx context.Context, email, name, hash, workspace string) (User, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback(ctx)
+	u, err := scanUser(tx.QueryRow(ctx, `
 		insert into users (email, name, password_hash, role)
 		select $1, $2, $3, 'owner' where not exists (select 1 from users)
 		returning `+userColumns, email, name, hash))
 	if errors.Is(err, ErrNotFound) || isUnique(err) {
 		return u, ErrExists
+	} else if err != nil {
+		return u, err
 	}
-	return u, err
+	if _, err := ownerWorkspace(ctx, tx, workspace, u.ID); err != nil {
+		return u, err
+	}
+	return u, tx.Commit(ctx)
 }
 
 func (s *Store) Users(ctx context.Context) ([]User, error) {
@@ -188,43 +199,55 @@ func (s *Store) DeleteExpiredSessions(ctx context.Context) error {
 	return err
 }
 
-// Invite asks someone to create an account with a given role.
+// Invite asks someone to join a workspace with a given role. Someone
+// without an account creates one when accepting.
 type Invite struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
+	ID            string    `json:"id"`
+	WorkspaceID   string    `json:"workspace_id"`
+	WorkspaceName string    `json:"workspace_name"`
+	Email         string    `json:"email"`
+	Role          string    `json:"role"`
+	CreatedAt     time.Time `json:"created_at"`
+	ExpiresAt     time.Time `json:"expires_at"`
 }
 
-const inviteColumns = `id, email, role, created_at, expires_at`
+const inviteColumns = `i.id, i.workspace_id::text, w.name, i.email, i.role, i.created_at, i.expires_at`
 
 func scanInvite(row pgx.Row) (Invite, error) {
 	var i Invite
-	err := row.Scan(&i.ID, &i.Email, &i.Role, &i.CreatedAt, &i.ExpiresAt)
+	err := row.Scan(&i.ID, &i.WorkspaceID, &i.WorkspaceName, &i.Email, &i.Role, &i.CreatedAt, &i.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return i, ErrNotFound
 	}
 	return i, err
 }
 
-// CreateInvite replaces an earlier invite to the same address, so inviting
-// again gives a fresh link. An address that has an account is ErrExists.
-func (s *Store) CreateInvite(ctx context.Context, email, role, tokenHash, invitedBy string, expires time.Time) (Invite, error) {
-	if _, err := s.UserByEmail(ctx, email); err == nil {
-		return Invite{}, ErrExists
-	} else if !errors.Is(err, ErrNotFound) {
+// CreateInvite replaces an earlier invite to the same address in the same
+// workspace, so inviting again gives a fresh link. Someone already in the
+// workspace is ErrExists.
+func (s *Store) CreateInvite(ctx context.Context, ws, email, role, tokenHash, invitedBy string, expires time.Time) (Invite, error) {
+	var member bool
+	if err := s.db.QueryRow(ctx, `select exists (select 1 from workspace_members m join users u on u.id = m.user_id
+		where m.workspace_id::text = $1 and lower(u.email) = lower($2))`, ws, email).Scan(&member); err != nil {
 		return Invite{}, err
 	}
+	if member {
+		return Invite{}, ErrExists
+	}
 	return scanInvite(s.db.QueryRow(ctx, `
-		insert into invites (email, role, token_hash, invited_by, expires_at) values ($1, $2, $3, nullif($4, '')::uuid, $5)
-		on conflict (lower(email)) do update set role = excluded.role, token_hash = excluded.token_hash,
-			invited_by = excluded.invited_by, created_at = now(), expires_at = excluded.expires_at
-		returning `+inviteColumns, email, role, tokenHash, invitedBy, expires))
+		with i as (
+			insert into invites (workspace_id, email, role, token_hash, invited_by, expires_at)
+			values ($1::uuid, $2, $3, $4, nullif($5, '')::uuid, $6)
+			on conflict (workspace_id, lower(email)) do update set role = excluded.role, token_hash = excluded.token_hash,
+				invited_by = excluded.invited_by, created_at = now(), expires_at = excluded.expires_at
+			returning *)
+		select `+inviteColumns+` from i join workspaces w on w.id = i.workspace_id`,
+		ws, email, role, tokenHash, invitedBy, expires))
 }
 
-func (s *Store) Invites(ctx context.Context) ([]Invite, error) {
-	rows, err := s.db.Query(ctx, `select `+inviteColumns+` from invites where expires_at > now() order by created_at`)
+func (s *Store) Invites(ctx context.Context, ws string) ([]Invite, error) {
+	rows, err := s.db.Query(ctx, `select `+inviteColumns+` from invites i join workspaces w on w.id = i.workspace_id
+		where i.workspace_id::text = $1 and i.expires_at > now() order by i.created_at`, ws)
 	if err != nil {
 		return nil, err
 	}
@@ -242,38 +265,66 @@ func (s *Store) Invites(ctx context.Context) ([]Invite, error) {
 
 func (s *Store) InviteByToken(ctx context.Context, tokenHash string) (Invite, error) {
 	return scanInvite(s.db.QueryRow(ctx, `
-		select `+inviteColumns+` from invites where token_hash = $1 and expires_at > now()`, tokenHash))
+		select `+inviteColumns+` from invites i join workspaces w on w.id = i.workspace_id
+		where i.token_hash = $1 and i.expires_at > now()`, tokenHash))
 }
 
-func (s *Store) DeleteInvite(ctx context.Context, id string) error {
-	_, err := s.db.Exec(ctx, `delete from invites where id = $1`, id)
+func (s *Store) DeleteInvite(ctx context.Context, ws, id string) error {
+	_, err := s.db.Exec(ctx, `delete from invites where id::text = $1 and workspace_id::text = $2`, id, ws)
 	return err
 }
 
-// AcceptInvite turns an invite into an account, once.
+// takeInvite uses up an invite inside tx.
+func takeInvite(ctx context.Context, tx pgx.Tx, tokenHash string) (email, role, ws string, err error) {
+	err = tx.QueryRow(ctx, `delete from invites where token_hash = $1 and expires_at > now()
+		returning email, role, workspace_id::text`, tokenHash).Scan(&email, &role, &ws)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = ErrNotFound
+	}
+	return
+}
+
+// AcceptInvite turns an invite into a new account in its workspace, once.
 func (s *Store) AcceptInvite(ctx context.Context, tokenHash, name, passwordHash string) (User, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return User{}, err
 	}
 	defer tx.Rollback(ctx)
-	var email, role string
-	err = tx.QueryRow(ctx, `delete from invites where token_hash = $1 and expires_at > now() returning email, role`, tokenHash).
-		Scan(&email, &role)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, ErrNotFound
-	} else if err != nil {
+	email, role, ws, err := takeInvite(ctx, tx, tokenHash)
+	if err != nil {
 		return User{}, err
 	}
 	u, err := scanUser(tx.QueryRow(ctx, `
-		insert into users (email, name, password_hash, role) values ($1, $2, $3, $4) returning `+userColumns,
-		email, name, passwordHash, role))
+		insert into users (email, name, password_hash, role) values ($1, $2, $3, 'member') returning `+userColumns,
+		email, name, passwordHash))
 	if isUnique(err) {
 		return u, ErrExists
 	} else if err != nil {
 		return u, err
 	}
+	if _, err := tx.Exec(ctx, `insert into workspace_members (workspace_id, user_id, role) values ($1::uuid, $2, $3)`, ws, u.ID, role); err != nil {
+		return u, err
+	}
 	return u, tx.Commit(ctx)
+}
+
+// JoinByInvite adds an existing account to the invite's workspace, once.
+func (s *Store) JoinByInvite(ctx context.Context, tokenHash, userID string) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	_, role, ws, err := takeInvite(ctx, tx, tokenHash)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `insert into workspace_members (workspace_id, user_id, role) values ($1::uuid, $2, $3)
+		on conflict do nothing`, ws, userID, role); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // prefixed qualifies each column in a column list with a table alias.

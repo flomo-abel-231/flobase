@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api, type ServerConfig, type Updates } from "../api";
 import { Button, Card, Notice, PageHeader, ThemeSwitch } from "../ui";
 
-export function Settings({ config }: { config: ServerConfig | null }) {
+export function Settings({ config, platformAdmin }: { config: ServerConfig | null; platformAdmin: boolean }) {
   return (
     <div className="flex max-w-3xl flex-col gap-8">
       <PageHeader title="Settings" subtitle="This FloBase instance and how the dashboard looks to you." />
@@ -12,7 +12,7 @@ export function Settings({ config }: { config: ServerConfig | null }) {
         <Row label="Theme" value={<ThemeSwitch />} />
       </Card>
 
-      <UpdatesSection />
+      {platformAdmin && <UpdatesSection />}
 
       <p className="body-sm text-ink-muted">
         Instance settings such as off-site storage, the gateway URL, auto-update and the API token are set in{" "}

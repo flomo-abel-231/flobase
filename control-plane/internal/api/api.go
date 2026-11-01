@@ -34,6 +34,9 @@ type Config struct {
 	UpdateRepo string
 	AutoUpdate bool
 	InstallDir string
+	// OwnerEmail, when set, is the address whose sign-up becomes the
+	// platform owner (FLOBASE_OWNER_EMAIL); else the first account is.
+	OwnerEmail string
 	// Local is a FloBase Desktop or flobase CLI install (~/.flobase).
 	Local bool
 	// Project and Name are the install's Compose project and container
@@ -88,6 +91,7 @@ func (s *Server) Routes() http.Handler {
 	s.assistantRoutes(mux)
 	s.accountRoutes(mux)
 	s.regionRoutes(mux)
+	s.workspaceRoutes(mux)
 	return mux
 }
 
@@ -209,8 +213,18 @@ func connectionURI(p store.Project, port int) string {
 	return u.String()
 }
 
+// listProjects lists the current workspace's projects; the API token
+// without a workspace sees every project.
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := s.store.Projects(r.Context())
+	var projects []store.Project
+	var err error
+	if id := who(r); id.allWorkspaces() {
+		projects, err = s.store.Projects(r.Context())
+	} else if id.Workspace == "" {
+		projects = nil
+	} else {
+		projects, err = s.store.WorkspaceProjects(r.Context(), id.Workspace)
+	}
 	if err != nil {
 		s.internal(w, err)
 		return
@@ -242,6 +256,10 @@ type createRequest struct {
 }
 
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	var req createRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "Body must be JSON with name, engine, region and plan.")
@@ -287,7 +305,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		user, dbname = "postgres", "postgres"
 	}
 	p, err := s.store.CreateProject(r.Context(), store.Project{
-		Ref: ref, Name: req.Name, Engine: req.Engine, Region: region.ID, Plan: plan.ID,
+		WorkspaceID: ws, Ref: ref, Name: req.Name, Engine: req.Engine, Region: region.ID, Plan: plan.ID,
 		DBUser: user, DBPassword: keys.Password(), DBName: dbname,
 		JWTSecret: secret,
 		AnonKey:   keys.APIKey(secret, ref, "anon"), ServiceKey: keys.APIKey(secret, ref, "service_role"),
