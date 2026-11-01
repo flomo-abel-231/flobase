@@ -38,6 +38,7 @@ services:
       FLOBASE_DATABASE_URL: postgres://flobase:${FLOBASE_PLATFORM_DB_PASSWORD}@platform-db:5432/flobase
       FLOBASE_PUBLIC_HOST: ${FLOBASE_PUBLIC_HOST:-localhost}
       FLOBASE_MARKUP: ${FLOBASE_MARKUP:-1.6}
+      FLOBASE_OWNER_EMAIL: ${FLOBASE_OWNER_EMAIL:-}
       FLOBASE_GATEWAY_URL: ${FLOBASE_GATEWAY_URL:-http://localhost:28471}
       FLOBASE_ATTACH: ${FLOBASE_NAME:-flobase}-control-plane,${FLOBASE_NAME:-flobase}-gateway
       # Off-site backup copies; leave the bucket empty to keep backups on this machine only.

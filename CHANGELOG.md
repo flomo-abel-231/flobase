@@ -2,6 +2,13 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Workspaces:** each workspace is its own organization with its own projects, members, invites, assistant models, conversations and automations, and nothing is shared between them. The API checks membership on every project request. People can belong to several workspaces and switch in the sidebar; **Workspace** creates, renames and deletes them.
+- **Sign-up in the cloud:** anyone can create an account, which comes with a workspace named after their organization. No API token is needed to sign in. The platform owner is the account with `FLOBASE_OWNER_EMAIL`, or the first one. Regions, off-site backups and updates are under **Platform**, for the owner and platform admins only.
+- Invites are per workspace. People who already have an account accept with their password.
+- Upgrading moves an existing team, its projects and its assistant into one workspace, and the first owner to sign in takes it over.
+
 ## 0.6.0 — 2026-11-01
 
 - **Regions on your own servers:** the owner adds a Docker server per location under **Regions** (reached over SSH, or TLS with client certificates), with a name, location label, public host for database connections and a cost multiplier, then opens or closes it. Customers pick the location when creating a project, with prices for that region (estimated cost × multiplier × `FLOBASE_MARKUP`). Every project operation — create, delete, backups, restores, password reset, logs, SQL editor, table editor, auth users — goes to the project's own server. The gateway and dashboard reach remote projects through a small relay FloBase starts on each server, which only lets in FloBase's own certificate. The AWS, GCP and Azure placeholder regions are gone. `scripts/region-server.sh` prepares a fresh Ubuntu or Debian server in one command.

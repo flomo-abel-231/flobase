@@ -126,7 +126,7 @@ func (s *Server) tools() []assistantTool {
 					return "", err
 				}
 				p, err := s.store.Project(ctx, r)
-				if err != nil {
+				if ws, _ := ctx.Value(toolWorkspaceKey{}).(string); err != nil || p.WorkspaceID != ws {
 					return "", errors.New("Project not found.")
 				}
 				out, err := s.selfCall(ctx, http.MethodDelete, "/api/v1/projects/"+r, map[string]string{"confirm": p.Name})
@@ -341,6 +341,9 @@ func (s *Server) runTool(ctx context.Context, call llm.Call) (string, error) {
 	return clip(out, 20000), err
 }
 
+// toolWorkspaceKey carries the workspace a conversation's tools act in.
+type toolWorkspaceKey struct{}
+
 // selfCall makes a request to this server's API and returns the response
 // body with secrets removed; a failed request returns its message as the
 // error.
@@ -357,6 +360,12 @@ func (s *Server) selfCall(ctx context.Context, method, path string, body any) (s
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+s.cfg.APIToken)
+	// The API token with a workspace header can reach that workspace only.
+	ws, _ := ctx.Value(toolWorkspaceKey{}).(string)
+	if ws == "" {
+		return "", errors.New("the assistant has no workspace to work in")
+	}
+	req.Header.Set(workspaceHeader, ws)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	s.assistant.self.ServeHTTP(rec, req)

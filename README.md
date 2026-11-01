@@ -182,17 +182,22 @@ SQL is sorted by its words, erring towards "change". A query the assistant runs 
 
 What you write, and what the assistant reads from your projects, goes to the model's service. Database passwords, API keys and connection strings are removed before anything is sent. Data from your databases is marked as data, not instructions, but a model can still be misled by text it reads. Keep "Ask before changes" for databases that hold content other people write.
 
-## Accounts
+## Accounts and workspaces
 
-People sign in to the dashboard with email and password. On a new install, the first person to open the dashboard creates the owner account, which needs the install's API token (`FLOBASE_API_TOKEN` in `.env`), so nobody else can claim a public server first. The owner and admins invite others under **Team**: FloBase makes a one-time link, valid for 7 days, that you send yourself (FloBase does not send email yet). Everyone signed in can use every project; only the owner and admins manage the team.
+A **workspace** is one organization: its own projects, members, invites, assistant models and keys, conversations and automations. Nothing is shared between workspaces, and the API checks membership on every request, so one organization can never read or change another's projects, even by guessing a project's ref. People can belong to several workspaces and switch between them in the sidebar.
 
-Signing in works like Supabase Auth: a JWT access token valid for 1 hour and a refresh token that is exchanged for a new pair before it runs out. Each refresh token works once, and reusing one ends its session. The dashboard keeps the refresh token in an httpOnly cookie and the access token in memory only. Signing out, removing someone and changing a password take effect at once. After 10 wrong passwords for an email, sign-in for it pauses for 15 minutes.
+- **Cloud mode:** anyone can create an account on the sign-in page and gets a workspace of their own, named after their organization. The platform owner, who runs the FloBase, is the account that signs up with `FLOBASE_OWNER_EMAIL`, or the first account when that is empty. The owner and platform admins also see **Platform → Regions** and **Off-site backups**, and updates under Settings. They do not see other workspaces' projects.
+- **Self-hosted mode:** sign-up is closed. The first person creates the owner account with the install's API token (`FLOBASE_API_TOKEN` in `.env`), so nobody else can claim a public server first, and invites the rest.
 
-The API token still works everywhere with the owner's rights: the `flobase` CLI and FloBase Desktop sign in with it, and so do automations.
+A workspace's owner and admins invite people under **Members**: FloBase makes a one-time link, valid for 7 days, that you send yourself (FloBase does not send email yet). Someone new picks a name and password; someone who already has an account accepts with their password. The workspace's owner can rename it, and delete it once its projects are gone, under **Workspace**.
+
+Signing in works like Supabase Auth: a JWT access token valid for 1 hour and a refresh token that is exchanged for a new pair before it runs out. Each refresh token works once, and reusing one ends its session. The dashboard keeps the refresh token in an httpOnly cookie and the access token in memory only. Signing out, removing someone and changing a password take effect at once. After 10 wrong passwords for an email, sign-in for it pauses for 15 minutes, and one IP address can create at most 10 accounts in 15 minutes.
+
+The API token works with the platform owner's rights across every workspace: the `flobase` CLI and FloBase Desktop sign in with it. Send `X-FloBase-Workspace: <id>` with it to act in one workspace only; the assistant does this, so its tools reach only the conversation's workspace.
 
 ## Security notes
 
-- Auth confirms email addresses automatically because no email server is configured yet. Set one up before real users sign up.
+- Auth confirms email addresses automatically because no email server is configured yet, for project users and FloBase accounts alike. Set one up before opening sign-up widely.
 - The control plane mounts the Docker socket, which is root on the host. Keep the API token secret and do not expose the dashboard port (28470) to the internet without TLS in front.
 - Database passwords and JWT secrets are stored in the platform database unencrypted. Encrypt them (KMS or OpenBao) before running a public service.
 
