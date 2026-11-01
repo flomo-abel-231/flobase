@@ -123,7 +123,7 @@ export interface TableInfo {
   name: string;
   kind: "table" | "view";
   rls: boolean;
-  row_estimate: number;
+  row_estimate: number | null;
 }
 
 export interface Column {
