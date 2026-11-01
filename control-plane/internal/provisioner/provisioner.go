@@ -68,6 +68,12 @@ type Provisioner interface {
 	// the service's name on the project network when the control plane is
 	// attached to it, else the published host port.
 	Addr(ref, service string, containerPort, publishedPort int) (string, int)
+	// SetPassword gives the database users that have the project's
+	// password a new one (s.Password), logging in with old.
+	SetPassword(ctx context.Context, s Spec, old string) error
+	// Recreate replaces the project's containers with ones built from s,
+	// keeping its data and published ports.
+	Recreate(ctx context.Context, s Spec) error
 	// Logs returns the last lines a project service wrote.
 	Logs(ctx context.Context, ref, service string, lines int) (string, error)
 

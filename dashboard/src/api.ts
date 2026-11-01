@@ -344,6 +344,7 @@ export const api = {
   createProject: (input: { name: string; engine: EngineId; region: string; plan: string }) =>
     request<Project>("POST", "/projects", input),
   deleteProject: (ref: string, confirm: string) => request<void>("DELETE", `/projects/${ref}`, { confirm }),
+  resetPassword: (ref: string) => request<Project>("POST", `/projects/${ref}/password`),
   deleteCheck: (ref: string) => request<DeleteCheck>("GET", `/projects/${ref}/delete-check`),
   backupToCloud: (ref: string) => request<{ bucket: string; backup: string; finished: string }>("POST", `/projects/${ref}/backups/offsite`),
   storages: () => request<{ locations: StorageLocation[]; env_managed: boolean }>("GET", "/storages"),
