@@ -128,6 +128,9 @@ func (s *Server) runSQL(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Query string `json:"query"`
+		// ReadOnly runs the query in read-only transactions, so the
+		// database refuses any change.
+		ReadOnly bool `json:"read_only"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -142,9 +145,9 @@ func (s *Server) runSQL(w http.ResponseWriter, r *http.Request) {
 	var results []queryResult
 	var err error
 	if p.Engine == "postgres" {
-		results, err = s.runPostgres(ctx, p, req.Query)
+		results, err = s.runPostgres(ctx, p, req.Query, req.ReadOnly)
 	} else {
-		results, err = s.runMySQL(ctx, p, req.Query)
+		results, err = s.runMySQL(ctx, p, req.Query, req.ReadOnly)
 	}
 	if err != nil {
 		dbError(w, err)
@@ -155,12 +158,17 @@ func (s *Server) runSQL(w http.ResponseWriter, r *http.Request) {
 
 // runPostgres uses the simple query protocol, so a script of several
 // statements runs as one batch, as it would in psql.
-func (s *Server) runPostgres(ctx context.Context, p store.Project, query string) ([]queryResult, error) {
+func (s *Server) runPostgres(ctx context.Context, p store.Project, query string, readOnly bool) ([]queryResult, error) {
 	conn, err := s.pgConnect(ctx, p)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close(context.Background())
+	if readOnly {
+		if _, err := conn.Exec(ctx, "set session characteristics as transaction read only"); err != nil {
+			return nil, err
+		}
+	}
 	all, err := conn.PgConn().Exec(ctx, query).ReadAll()
 	if err != nil {
 		return nil, err
@@ -193,13 +201,23 @@ func textRow(row [][]byte) []any {
 	return out
 }
 
-func (s *Server) runMySQL(ctx context.Context, p store.Project, query string) ([]queryResult, error) {
+func (s *Server) runMySQL(ctx context.Context, p store.Project, query string, readOnly bool) ([]queryResult, error) {
 	db, err := s.mysqlOpen(p)
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
-	rows, err := db.QueryContext(ctx, query)
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	if readOnly {
+		if _, err := conn.ExecContext(ctx, "SET SESSION TRANSACTION READ ONLY"); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := conn.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

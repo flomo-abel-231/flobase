@@ -192,6 +192,79 @@ export interface DeleteCheck {
   engine_backup: boolean;
 }
 
+export type AssistantMode = "read" | "ask" | "auto";
+
+export interface LLMProvider {
+  id: string;
+  name: string;
+  kind: "anthropic" | "openai";
+  preset: string;
+  base_url: string;
+  model: string;
+  api_key_hint: string;
+  default: boolean;
+  created_at: string;
+}
+
+export interface ProviderInput {
+  id?: string;
+  name: string;
+  kind: "anthropic" | "openai";
+  preset: string;
+  base_url: string;
+  api_key: string;
+  model: string;
+}
+
+export interface ToolEntry {
+  call_id: string;
+  name: string;
+  title: string;
+  detail?: string;
+  risk: "read" | "change" | "delete";
+  status: "running" | "done" | "failed" | "waiting" | "approved" | "denied";
+  output?: string;
+}
+
+export interface ChatEntry {
+  role: "user" | "assistant" | "tool" | "notice";
+  text?: string;
+  tool?: ToolEntry;
+  at: string;
+}
+
+export interface Chat {
+  id: string;
+  title: string;
+  provider_id: string | null;
+  automation_id: string | null;
+  status: "idle" | "running" | "waiting" | "failed";
+  entries?: ChatEntry[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Automation {
+  id: string;
+  name: string;
+  prompt: string;
+  provider_id: string | null;
+  every: "hour" | "day" | "week";
+  enabled: boolean;
+  next_run_at: string;
+  last_run_at: string | null;
+  last_chat_id: string | null;
+  last_status?: Chat["status"];
+}
+
+export interface AutomationInput {
+  name: string;
+  prompt: string;
+  provider_id: string;
+  every: Automation["every"];
+  enabled?: boolean;
+}
+
 export interface NewColumn {
   name: string;
   type: string;
@@ -279,6 +352,28 @@ export const api = {
   activateStorage: (id: string) => request<void>("POST", `/storages/${id}/activate`),
   deactivateStorage: () => request<void>("POST", "/storages/deactivate"),
   deleteStorage: (id: string) => request<void>("DELETE", `/storages/${id}`),
+  assistantSettings: () => request<{ mode: AssistantMode; providers: LLMProvider[] }>("GET", "/assistant/settings"),
+  setAssistantMode: (mode: AssistantMode) => request<void>("PUT", "/assistant/settings", { mode }),
+  providerModels: (input: Partial<ProviderInput>) => request<{ models: string[] }>("POST", "/assistant/providers/models", input),
+  testProvider: (input: ProviderInput) => request<{ result: string }>("POST", "/assistant/providers/test", input),
+  createProvider: (input: ProviderInput) => request<LLMProvider>("POST", "/assistant/providers", input),
+  updateProvider: (id: string, input: { name: string; model: string; api_key: string }) =>
+    request<void>("PATCH", `/assistant/providers/${id}`, input),
+  defaultProvider: (id: string) => request<void>("POST", `/assistant/providers/${id}/default`),
+  deleteProvider: (id: string) => request<void>("DELETE", `/assistant/providers/${id}`),
+  chats: () => request<Chat[]>("GET", "/assistant/chats"),
+  chat: (id: string) => request<Chat>("GET", `/assistant/chats/${id}`),
+  createChat: (message: string, providerId: string) =>
+    request<Chat>("POST", "/assistant/chats", { message, provider_id: providerId }),
+  sendMessage: (id: string, message: string) => request<Chat>("POST", `/assistant/chats/${id}/messages`, { message }),
+  decide: (id: string, callId: string, approve: boolean) =>
+    request<Chat>("POST", `/assistant/chats/${id}/decisions`, { call_id: callId, approve }),
+  deleteChat: (id: string) => request<void>("DELETE", `/assistant/chats/${id}`),
+  automations: () => request<Automation[]>("GET", "/automations"),
+  createAutomation: (input: AutomationInput) => request<Automation>("POST", "/automations", input),
+  updateAutomation: (id: string, input: AutomationInput) => request<Automation>("PATCH", `/automations/${id}`, input),
+  runAutomation: (id: string) => request<Chat>("POST", `/automations/${id}/run`),
+  deleteAutomation: (id: string) => request<void>("DELETE", `/automations/${id}`),
   sql: (ref: string, query: string) => request<QueryResponse>("POST", `/projects/${ref}/sql`, { query }),
   tables: (ref: string) => request<TableInfo[]>("GET", `/projects/${ref}/tables`),
   createTable: (ref: string, input: { name: string; rls: boolean; columns: NewColumn[] }) =>

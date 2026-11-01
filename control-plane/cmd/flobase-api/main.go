@@ -156,6 +156,7 @@ func run(log *slog.Logger) error {
 	go srv.ApplyStorage(ctx)
 	go srv.RunBackups(ctx)
 	go srv.RunUpdateChecks(ctx)
+	go srv.RunAutomations(ctx)
 
 	handler := srv.Routes()
 	if dir := os.Getenv("FLOBASE_DASHBOARD_DIR"); dir != "" {

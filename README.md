@@ -117,6 +117,10 @@ All routes except `health` and `config` need `Authorization: Bearer $FLOBASE_API
 | `GET /api/v1/projects/{ref}/logs?service=db` | Last 300 log lines of a service |
 | `GET/POST /api/v1/projects/{ref}/backups` | List full backups and the restore window, or take a backup now (Postgres) |
 | `POST /api/v1/projects/{ref}/restore` | Restore into a new project: `{"latest": true}`, `{"time": "<RFC 3339>"}` or `{"backup": "<name>"}` |
+| `GET/PUT /api/v1/assistant/settings` | The assistant's models and permission mode (`read`, `ask` or `auto`) |
+| `POST /api/v1/assistant/providers`, `PATCH/DELETE …/providers/{id}`, `POST …/providers/{id}/default`, `POST …/providers/test`, `POST …/providers/models` | Add, test and manage models; saving tests the key first |
+| `GET/POST /api/v1/assistant/chats`, `GET/DELETE …/chats/{id}`, `POST …/chats/{id}/messages`, `POST …/chats/{id}/decisions` | Conversations with the assistant; it works in the background, and `decisions` approves or refuses a waiting action |
+| `GET/POST /api/v1/automations`, `PATCH/DELETE …/automations/{id}`, `POST …/automations/{id}/run` | Prompts the assistant runs every hour, day or week |
 | `GET/POST /api/v1/storages`, `POST …/storages/test`, `POST …/storages/{id}/activate`, `POST …/storages/deactivate`, `DELETE …/storages/{id}` | Manage storage locations for off-site copies; saving tests the bucket first |
 
 ## Backups
@@ -130,6 +134,29 @@ On **Off-site backups**, add a storage location: an S3-compatible bucket (AWS S3
 You can also set `FLOBASE_BACKUP_S3_BUCKET` and its keys in `.env` (see `.env.example`). That location then takes precedence and is shown read-only.
 
 Off-site copies outlive the project. If the machine is lost, start FloBase on a new one with the same bucket settings: add the same location (and encryption key): Off-site backups lists every project found in the bucket, and **Restore latest** rebuilds it as a new project. No passwords from the old machine are needed. Without off-site storage, backups only protect against mistakes, not against losing the machine.
+
+## Assistant
+
+The assistant works on your FloBase with a model you choose and your own API key. It can list and create projects, run SQL, manage tables and auth users, take backups, restore, and read logs. Add a model under **Assistant → Models & permissions**:
+
+- **Claude**, through Anthropic's API.
+- **Any OpenAI-compatible service:** OpenAI, Google Gemini, OpenRouter, Groq, Mistral, DeepSeek, xAI, or **Ollama** on your own machine (no key; FloBase reaches it as `host.docker.internal`).
+
+FloBase tests a key before saving it. Keys stay in FloBase's database and are never shown again, only their last four characters.
+
+What it may do without asking is your choice:
+
+| Setting | Runs at once | Waits for your approval |
+| --- | --- | --- |
+| Read only | Reads, read-only SQL | Nothing; changes are refused |
+| Ask before changes (default) | Reads | Every change and delete |
+| Ask before deletes | Reads and changes | Deletes: projects, users, `DROP`, `DELETE`, `TRUNCATE` |
+
+SQL is sorted by its words, erring towards "change". A query the assistant runs as a read also runs in a read-only transaction, so the database refuses any change that slipped through.
+
+**Automations** run a prompt every hour, day or week, such as "check every project's backups and report any older than a day". Each run is a conversation you can open. Nobody is there to approve, so a run only does what the setting allows without asking.
+
+What you write, and what the assistant reads from your projects, goes to the model's service. Database passwords, API keys and connection strings are removed before anything is sent. Data from your databases is marked as data, not instructions, but a model can still be misled by text it reads. Keep "Ask before changes" for databases that hold content other people write.
 
 ## Security notes
 
