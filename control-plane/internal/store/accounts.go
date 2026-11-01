@@ -335,3 +335,52 @@ func prefixed(alias, columns string) string {
 	}
 	return strings.Join(parts, ", ")
 }
+
+// CreatePasswordReset stores a reset link for an account, replacing any
+// earlier one.
+func (s *Store) CreatePasswordReset(ctx context.Context, userID, tokenHash string, expires time.Time) error {
+	_, err := s.db.Exec(ctx, `insert into password_resets (token_hash, user_id, expires_at) values ($1, $2, $3)
+		on conflict (user_id) do update set token_hash = excluded.token_hash, created_at = now(), expires_at = excluded.expires_at`,
+		tokenHash, userID, expires)
+	return err
+}
+
+// PasswordResetUser is the account a live reset link is for.
+func (s *Store) PasswordResetUser(ctx context.Context, tokenHash string) (User, error) {
+	return scanUser(s.db.QueryRow(ctx, `select `+prefixed("u.", userColumns)+` from password_resets r
+		join users u on u.id = r.user_id where r.token_hash = $1 and r.expires_at > now()`, tokenHash))
+}
+
+// ResetPassword uses a reset link once: it sets the account's password and
+// signs out all its sessions.
+func (s *Store) ResetPassword(ctx context.Context, tokenHash, passwordHash string) (User, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback(ctx)
+	var userID string
+	err = tx.QueryRow(ctx, `delete from password_resets where token_hash = $1 and expires_at > now() returning user_id`, tokenHash).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	} else if err != nil {
+		return User{}, err
+	}
+	if _, err := tx.Exec(ctx, `update users set password_hash = $2 where id = $1`, userID, passwordHash); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.Exec(ctx, `delete from sessions where user_id = $1`, userID); err != nil {
+		return User{}, err
+	}
+	u, err := scanUser(tx.QueryRow(ctx, `select `+userColumns+` from users where id = $1`, userID))
+	if err != nil {
+		return User{}, err
+	}
+	return u, tx.Commit(ctx)
+}
+
+// DeleteExpiredPasswordResets clears links nobody used.
+func (s *Store) DeleteExpiredPasswordResets(ctx context.Context) error {
+	_, err := s.db.Exec(ctx, `delete from password_resets where expires_at <= now()`)
+	return err
+}

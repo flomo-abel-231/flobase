@@ -589,7 +589,11 @@ export async function downloadCA() {
 export const api = {
   config: () => request<ServerConfig>("GET", "/config"),
   me: () => request<Me>("GET", "/me"),
-  authStatus: () => request<{ setup_required: boolean; signup: boolean; owner_email: boolean }>("GET", "/auth/status"),
+  authStatus: () =>
+    request<{ setup_required: boolean; signup: boolean; owner_email: boolean; password_reset?: boolean }>("GET", "/auth/status"),
+  recoverPassword: (email: string) => request<{ message: string }>("POST", "/auth/recover", { email }),
+  resetInfo: (token: string) => request<{ email: string }>("GET", `/auth/reset/${encodeURIComponent(token)}`),
+  setForgottenPassword: (token: string, password: string) => authRequest(`reset/${encodeURIComponent(token)}`, { password }),
   signUp: (input: { email: string; name: string; password: string; workspace: string }) => authRequest("signup", input),
   createWorkspace: (name: string) => request<Workspace>("POST", "/workspaces", { name }),
   renameWorkspace: (id: string, name: string) => request<void>("PATCH", `/workspaces/${id}`, { name }),
