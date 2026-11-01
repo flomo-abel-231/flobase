@@ -49,10 +49,12 @@ services:
       FLOBASE_BACKUP_S3_SECRET_KEY: ${FLOBASE_BACKUP_S3_SECRET_KEY:-}
       FLOBASE_BACKUP_ENCRYPTION_KEY: ${FLOBASE_BACKUP_ENCRYPTION_KEY:-}
       # Updates: the control plane checks GitHub Releases and, when auto-update
-      # is on and FloBase was installed by the install script, runs upgrade.sh.
+      # is on and FloBase was installed by the install script, FloBase Desktop
+      # or the flobase CLI, runs upgrade.sh.
       FLOBASE_AUTO_UPDATE: ${FLOBASE_AUTO_UPDATE:-false}
       FLOBASE_UPDATE_REPO: ${FLOBASE_UPDATE_REPO:-flomo-abel-231/flobase}
       FLOBASE_INSTALL_DIR: ${FLOBASE_INSTALL_DIR:-}
+      FLOBASE_INSTALL_KIND: ${FLOBASE_INSTALL_KIND:-server}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/v1/health"]
       interval: 5s

@@ -118,6 +118,30 @@ func run(log *slog.Logger) error {
 		UpdateRepo: env("FLOBASE_UPDATE_REPO", "flomo-abel-231/flobase"),
 		AutoUpdate: os.Getenv("FLOBASE_AUTO_UPDATE") == "true",
 		InstallDir: os.Getenv("FLOBASE_INSTALL_DIR"),
+		Local:      os.Getenv("FLOBASE_INSTALL_KIND") == "local",
+	}
+	// The updater needs the install's Compose project and container names,
+	// which Compose put on this container.
+	self := "flobase-control-plane"
+	if len(attach) > 0 {
+		self = attach[0]
+	} else if h, err := os.Hostname(); err == nil {
+		self = h
+	}
+	if in, err := docker.SelfInstall(ctx, self); err == nil {
+		cfg.Project, cfg.Name = in.Project, in.Name
+		// FloBase Desktop and the flobase CLI up to 0.3.0 wrote
+		// FLOBASE_AUTO_UPDATE=false and no install directory, and their
+		// compose file sets no FLOBASE_INSTALL_KIND: they update by
+		// themselves now, from the directory Compose ran in.
+		if in.Project == "flobase-local" {
+			cfg.Local = true
+		}
+		if cfg.Local && cfg.InstallDir == "" {
+			cfg.InstallDir, cfg.AutoUpdate = in.Dir, true
+		}
+	} else {
+		log.Info("not started by Docker Compose; updates are by hand", "err", err)
 	}
 	cfg.EnvOffsite = offsite
 	srv := api.New(cfg, st, docker, log)

@@ -147,6 +147,8 @@ export interface Updates {
   notes?: string;
   release_url?: string;
   auto: boolean;
+  /** "server": install.sh; "local": FloBase Desktop or the flobase CLI. */
+  install: "server" | "local";
   can_update: boolean;
   updating: boolean;
   checked_at?: string;
