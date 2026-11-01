@@ -23,6 +23,7 @@ export interface Plan {
   price_usd: number;
   markup?: number;
   description: string;
+  available: boolean;
 }
 
 export interface Region {

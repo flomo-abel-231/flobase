@@ -138,7 +138,7 @@ export function NewProject() {
         <Section title={catalog.billing ? "Plan" : "Size"}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {catalog.plans.map((p) => (
-              <Choice key={p.id} name="plan" value={p.id} checked={plan === p.id} onChange={setPlan}>
+              <Choice key={p.id} name="plan" value={p.id} checked={plan === p.id} disabled={!p.available} onChange={setPlan}>
                 <span className="font-medium text-ink">{p.name}</span>
                 {catalog.billing && (
                   <span className="metric text-ink">
@@ -152,12 +152,14 @@ export function NewProject() {
                 <span className="body-sm text-ink-muted">
                   {p.disk_gb} GB database · {p.backups} backups
                 </span>
+                {!p.available && <span className="body-sm text-ink-muted">Coming soon</span>}
               </Choice>
             ))}
           </div>
           {catalog.billing && (
             <p className="body-sm text-ink-muted">
               Prices are the estimated server cost in the chosen location × {catalog.target_markup}, with usage over the plan billed at the same markup.
+              {catalog.plans.some((p) => !p.available) && " Paid plans open once payments are set up; start on Free for now."}
             </p>
           )}
         </Section>
