@@ -61,11 +61,8 @@ func run(log *slog.Logger) error {
 	}
 	defer st.Close()
 
-	regions := []catalog.Region{catalog.LocalRegion}
-	if mode == "cloud" {
-		regions = append(regions, catalog.CloudRegions...)
-	}
-	if err := st.SeedRegions(ctx, regions); err != nil {
+	// Other regions are region servers added in the dashboard.
+	if err := st.SeedRegions(ctx, []catalog.Region{catalog.LocalRegion}); err != nil {
 		return err
 	}
 	if err := st.FailInterrupted(ctx); err != nil {
@@ -105,7 +102,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	for _, p := range projects {
-		if p.Status == store.StatusActive {
+		if p.Status == store.StatusActive && p.Region == provisioner.LocalRegion {
 			if err := docker.Attach(ctx, p.Ref); err != nil {
 				log.Warn("attach to project network", "ref", p.Ref, "err", err)
 			}
@@ -144,7 +141,15 @@ func run(log *slog.Logger) error {
 		log.Info("not started by Docker Compose; updates are by hand", "err", err)
 	}
 	cfg.EnvOffsite = offsite
-	srv := api.New(cfg, st, docker, log)
+	// Each project's calls go to its region's Docker host.
+	router := provisioner.NewRouter(docker, func(ctx context.Context, ref string) (string, error) {
+		p, err := st.Project(ctx, ref)
+		return p.Region, err
+	})
+	srv := api.New(cfg, st, router, log)
+	if err := srv.StartRegions(ctx); err != nil {
+		return err
+	}
 	deleting, err := st.Deleting(ctx)
 	if err != nil {
 		return err

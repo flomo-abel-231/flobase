@@ -12,6 +12,7 @@ import { AssistantSettings } from "./pages/AssistantSettings";
 import { Automations } from "./pages/Automations";
 import { Team } from "./pages/Team";
 import { Account } from "./pages/Account";
+import { Regions } from "./pages/Regions";
 
 // Hash routes keep the dashboard servable as static files from any host.
 type Route =
@@ -23,6 +24,7 @@ type Route =
   | { page: "assistant-settings" }
   | { page: "automations" }
   | { page: "team" }
+  | { page: "regions" }
   | { page: "account" }
   | { page: "invite"; token: string }
   | { page: "project"; ref: string; tab: string; section?: string };
@@ -39,6 +41,7 @@ function parseRoute(hash: string): Route {
   if (chat) return { page: "assistant", chat: chat[1] };
   if (path === "/automations") return { page: "automations" };
   if (path === "/team") return { page: "team" };
+  if (path === "/regions") return { page: "regions" };
   if (path === "/account") return { page: "account" };
   const invite = path.match(/^\/invite\/([A-Za-z0-9]+)$/);
   if (invite) return { page: "invite", token: invite[1] };
@@ -51,6 +54,12 @@ export function navigate(path: string) {
 
 const icons: Record<string, ReactNode> = {
   projects: <path d="M3 5.5A1.5 1.5 0 0 1 4.5 4h3.6l1.5 2h5.9A1.5 1.5 0 0 1 17 7.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5z" />,
+  regions: (
+    <>
+      <circle cx="10" cy="10" r="7" />
+      <path d="M3 10h14M10 3c2 2.2 2.8 4.5 2.8 7s-.8 4.8-2.8 7c-2-2.2-2.8-4.5-2.8-7S8 5.2 10 3z" />
+    </>
+  ),
   offsite: <path d="M6 15.5h8.5a3 3 0 0 0 .4-6 4.5 4.5 0 0 0-8.7-1A3.5 3.5 0 0 0 6 15.5zM10 9v5M8 12l2 2 2-2" />,
   settings: (
     <>
@@ -165,6 +174,7 @@ export function App() {
         <NavLink href="#/" icon="projects" label="Projects" active={section === "projects"} />
         <NavLink href="#/assistant" icon="assistant" label="Assistant" active={section === "assistant"} />
         <NavLink href="#/automations" icon="automations" label="Automations" active={section === "automations"} />
+        <NavLink href="#/regions" icon="regions" label="Regions" active={section === "regions"} />
         <NavLink href="#/offsite" icon="offsite" label="Off-site backups" active={section === "offsite"} />
         <NavLink href="#/team" icon="team" label="Team" active={section === "team"} />
         <NavLink href="#/settings" icon="settings" label="Settings" active={section === "settings"} />
@@ -236,6 +246,7 @@ export function App() {
         {route.page === "assistant-settings" && <AssistantSettings />}
         {route.page === "automations" && <Automations />}
         {route.page === "team" && <Team me={me} />}
+        {route.page === "regions" && <Regions me={me} />}
         {route.page === "account" && <Account me={me} onChanged={(user) => setMe({ ...me, user })} onSignOut={signOut} />}
         {route.page === "project" && (
           <ProjectDetail key={route.ref} projectRef={route.ref} tab={route.tab} section={route.section} />

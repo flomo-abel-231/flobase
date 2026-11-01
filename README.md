@@ -60,7 +60,7 @@ The project URL and keys are under the project's Configuration → API. GraphQL 
 | `control-plane/cmd/flobase/`, `control-plane/local/` | The `flobase` CLI and the local runner it shares with FloBase Desktop: installs a Docker engine, runs FloBase on a laptop. |
 | `desktop/` | FloBase Desktop for macOS and Windows (Wails). |
 | `control-plane/cmd/flobase-gateway/` | API gateway: routes `/project/<ref>/rest/v1`, `/auth/v1` and `/graphql/v1`, checks API keys, adds CORS. |
-| `control-plane/internal/provisioner/` | Docker driver (self-hosted, local region). A Kubernetes driver for cloud regions comes next. |
+| `control-plane/internal/provisioner/` | Docker driver, for the local host and for region servers reached over SSH or TLS; the router sends each project's calls to its region. |
 | `dashboard/` | React + Vite dashboard, built on the design system. |
 | `packages/design-system/` | FloBase design tokens: CSS variables, Tailwind v4 theme, typed tokens. |
 | `docker-compose.yml`, `Dockerfile` | Self-hosted stack: control plane + dashboard, the gateway, and the platform's own Postgres. |
@@ -78,7 +78,16 @@ MongoDB itself is under the SSPL, which would force the whole service's source o
 ## Modes
 
 - `FLOBASE_MODE=self-hosted` (default): one organisation, the local Docker region, sizes without prices.
-- `FLOBASE_MODE=cloud`: plans with prices (estimated cloud cost × `FLOBASE_MARKUP`, default 1.6) and the AWS, GCP and Azure regions, shown as "Coming soon" until their cells exist.
+- `FLOBASE_MODE=cloud`: plans with prices (estimated server cost in the region × `FLOBASE_MARKUP`, default 1.6, rounded up to .99).
+
+## Regions
+
+Customers pick a location for each project. Besides the machine FloBase runs on, each region is a Docker server the owner adds under **Regions**, for example a Hetzner server in Frankfurt or a Vultr one in Johannesburg. Give it a name and location label, how FloBase reaches Docker there, and the host name customers' database connections use:
+
+- **SSH**: `ssh://root@203.0.113.10` and a private key; FloBase talks to the Docker socket through the SSH connection, like `docker -H ssh://`. Paste the server's host key (`ssh-keyscan -t ed25519 <host>`) or let FloBase trust the one it sees first.
+- **TLS**: `tcp://203.0.113.10:2376` with `dockerd --tlsverify`, and the CA, client certificate and client key.
+
+When the server is added, FloBase starts a **relay** there: a stock nginx container that joins every project network on that server and forwards TLS connections to the service named in them. The control plane and the gateway reach REST, auth and the SQL editor through it, and only they get in: both sides use certificates FloBase made for this server, and each accepts only the other's. Open the relay port (default 28474) to your FloBase's address only; customers' database ports are published as on the local host. New regions start closed: press **Check**, then **Open** to offer them. A region's **cost multiplier** scales its prices for servers that cost more there. A project stays on its region's server for its whole life, including backups, restores, password resets and logs; a region server can be removed once it has no projects.
 
 ## Develop
 
