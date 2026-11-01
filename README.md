@@ -212,6 +212,8 @@ Maintainers set the GitHub Sponsors account, the Stripe Payment Links and the co
 
 ## Security notes
 
+- Database connections are encrypted with TLS. Each install has its own certificate authority, kept in FloBase's database, which issues every project a certificate for its host. Connection strings carry `sslmode=require` (MySQL `ssl-mode=REQUIRED`, MongoDB `tls=true`); download the CA under a project's **Configuration → Connect** to verify the server too (`sslmode=verify-full`). The pooler and MongoDB-compatible projects refuse unencrypted connections. Projects made before 0.9.0 are switched over when FloBase starts: Postgres reloads its settings without a restart, and the pooler restarts on the same port.
+
 - Auth confirms email addresses automatically because no email server is configured yet, for project users and FloBase accounts alike. Set one up before opening sign-up widely.
 - The control plane mounts the Docker socket, which is root on the host. Keep the API token secret and do not expose the dashboard port (28470) to the internet without TLS in front.
 - Database passwords and JWT secrets are stored in the platform database unencrypted. Encrypt them (KMS or OpenBao) before running a public service.

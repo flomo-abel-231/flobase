@@ -28,6 +28,8 @@ type Docker struct {
 	// through it instead of by joining their networks (see relay.go).
 	relay   *Relay
 	hostKey func() string
+	// ca issues projects' database certificates; nil = no TLS.
+	ca *CA
 }
 
 func NewDocker(socket, publicHost string, attach []string, offsite *Offsite) *Docker {
@@ -70,8 +72,10 @@ type container struct {
 	mounts      []mount
 	healthcheck []string
 	// oneShot containers run a setup script to completion and are removed
-	// before the next container starts.
-	oneShot bool
+	// before the next container starts. everyStart ones also run when the
+	// project is recreated.
+	oneShot    bool
+	everyStart bool
 	// ready runs once the container is healthy, with the address the
 	// control plane reaches it on.
 	ready func(ctx context.Context, host string, port int) error
@@ -112,7 +116,7 @@ func containers(s Spec) ([]container, string, error) {
 	case "mongodb":
 		// FerretDB speaks the MongoDB wire protocol and stores documents in
 		// Postgres with the DocumentDB extension; both stay open source.
-		return []container{
+		return append(mongoTLS(s), []container{
 			{
 				suffix: "pg",
 				image:  "ghcr.io/ferretdb/postgres-documentdb:17",
@@ -125,17 +129,22 @@ func containers(s Spec) ([]container, string, error) {
 			{
 				suffix: "db",
 				image:  "ghcr.io/ferretdb/ferretdb:2",
-				env: []string{
+				env: append([]string{
 					"FERRETDB_POSTGRESQL_URL=postgres://" + s.User + ":" + s.Password + "@flobase-" + s.Ref + "-pg:5432/postgres",
-				},
-				port: 27017,
+				}, ferretTLSEnv(s)...),
+				port:   27017,
+				mounts: tlsMounts(s),
 			},
-		}, "db", nil
+		}...), "db", nil
 	}
 	return nil, "", fmt.Errorf("unknown engine %q", s.Engine)
 }
 
 func (d *Docker) Create(ctx context.Context, s Spec) (Endpoint, error) {
+	s, err := d.withTLS(s)
+	if err != nil {
+		return Endpoint{}, err
+	}
 	specs, entry, err := containers(s)
 	if err != nil {
 		return Endpoint{}, err
@@ -195,6 +204,7 @@ func (d *Docker) Create(ctx context.Context, s Spec) (Endpoint, error) {
 		}
 	}
 	ep.Host = d.publicHost
+	ep.TLS = s.TLSCert != "" || s.Engine == "mysql"
 	if s.Restore != nil && s.Restore.Offsite {
 		// The downloaded copy is no longer needed once the database is up.
 		_ = d.call(ctx, "DELETE", "/volumes/"+vol(s.Ref, "incoming"), nil, nil)

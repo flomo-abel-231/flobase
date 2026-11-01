@@ -53,6 +53,9 @@ type Server struct {
 	// router sends each project's calls to its region's server; nil when
 	// the provisioner is a single driver (tests).
 	router *provisioner.Router
+	// ca is the install's database certificate authority; nil until
+	// StartTLS.
+	ca *provisioner.CA
 	// updater is nil when the provisioner cannot start the updater.
 	updater Updater
 	updates updateState
@@ -92,6 +95,7 @@ func (s *Server) Routes() http.Handler {
 	s.accountRoutes(mux)
 	s.regionRoutes(mux)
 	s.workspaceRoutes(mux)
+	s.tlsRoutes(mux)
 	return mux
 }
 
@@ -202,6 +206,14 @@ func (s *Server) apiURL(ref string) string {
 	return strings.TrimRight(s.cfg.GatewayURL, "/") + "/project/" + ref
 }
 
+// tlsParams ask each engine's clients to encrypt the connection. They do
+// not verify the server; the CA from GET /api/v1/tls/ca does that.
+var tlsParams = map[string]string{
+	"postgres": "sslmode=require",
+	"mysql":    "ssl-mode=REQUIRED",
+	"mongodb":  "tls=true&tlsAllowInvalidCertificates=true",
+}
+
 func connectionURI(p store.Project, port int) string {
 	scheme := map[string]string{"postgres": "postgresql", "mysql": "mysql", "mongodb": "mongodb"}[p.Engine]
 	u := url.URL{
@@ -209,6 +221,9 @@ func connectionURI(p store.Project, port int) string {
 		User:   url.UserPassword(p.DBUser, p.DBPassword),
 		Host:   p.DBHost + ":" + strconv.Itoa(port),
 		Path:   "/" + p.DBName,
+	}
+	if p.TLS {
+		u.RawQuery = tlsParams[p.Engine]
 	}
 	return u.String()
 }
@@ -335,6 +350,9 @@ func (s *Server) provision(p store.Project, plan catalog.Plan, restore *provisio
 	if err := s.store.SetActive(context.Background(), p.Ref, ep.Host, ep.Port, ep.PoolerPort); err != nil {
 		s.log.Error("save endpoint", "ref", p.Ref, "err", err)
 		return
+	}
+	if err := s.store.SetTLS(context.Background(), p.Ref, ep.TLS); err != nil {
+		s.log.Error("save TLS", "ref", p.Ref, "err", err)
 	}
 	s.log.Info("project active", "ref", p.Ref, "engine", p.Engine, "port", ep.Port, "took", time.Since(start).Round(time.Millisecond))
 	// The first backup starts the restore window right away; the off-site

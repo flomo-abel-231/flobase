@@ -85,6 +85,10 @@ SQL`
 // in start order and on the same host ports, so connection strings keep
 // working. The data volumes stay. Open connections end.
 func (d *Docker) Recreate(ctx context.Context, s Spec) error {
+	s, err := d.withTLS(s)
+	if err != nil {
+		return err
+	}
 	specs, _, err := containers(s)
 	if err != nil {
 		return err
@@ -92,6 +96,12 @@ func (d *Docker) Recreate(ctx context.Context, s Spec) error {
 	network := "flobase-" + s.Ref
 	for _, c := range specs {
 		if c.oneShot {
+			// Setup and restore ran once; the certificate is renewed.
+			if c.everyStart {
+				if err := d.runOnce(ctx, s, c, network); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		name := "flobase-" + s.Ref + "-" + c.suffix

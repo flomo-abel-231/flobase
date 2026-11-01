@@ -151,6 +151,9 @@ func run(log *slog.Logger) error {
 	if err := srv.StartRegions(ctx); err != nil {
 		return err
 	}
+	if err := srv.StartTLS(ctx); err != nil {
+		return err
+	}
 	deleting, err := st.Deleting(ctx)
 	if err != nil {
 		return err

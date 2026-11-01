@@ -82,6 +82,8 @@ export interface Project {
   plan: string;
   status: Status;
   status_detail: string;
+  // The database serves TLS; connection strings ask for it.
+  tls: boolean;
   created_at: string;
   updated_at: string;
   connection?: {
@@ -495,6 +497,19 @@ async function rawRequest(method: string, path: string, body: unknown, retry: bo
   if (res.status === 204 || (res.status === 202 && method === "DELETE")) return undefined;
   const text = await res.text();
   return text ? JSON.parse(text) : undefined;
+}
+
+// downloadCA saves the install's database CA certificate, for clients that
+// verify the server (sslmode=verify-full and the like).
+export async function downloadCA() {
+  const res = await fetch("/api/v1/tls/ca", { headers: memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {} });
+  if (!res.ok) throw new ApiError(res.status, "Could not download the CA certificate.");
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "flobase-ca.pem";
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export const api = {

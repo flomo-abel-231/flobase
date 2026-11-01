@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { api, engineLabel, type DeleteCheck, type Project } from "../../api";
+import { api, downloadCA, engineLabel, type DeleteCheck, type Project } from "../../api";
 import { Button, Card, CopyField, Field, Input, Notice } from "../../ui";
 import { navigate } from "../../App";
 
@@ -106,8 +106,52 @@ function Connect({ project }: { project: Project }) {
         <CopyField label="Database" value={c.database} />
       </div>
       <CopyField label="Password" value={c.password} secret />
+      <Encryption project={project} />
       <ResetPassword project={project} onReset={setReset} />
     </Section>
+  );
+}
+
+// Encryption says whether connections are encrypted and offers the CA for
+// clients that verify the server.
+const verifyHint: Partial<Record<Project["engine"], string>> = {
+  postgres: "sslmode=verify-full&sslrootcert=flobase-ca.pem",
+  mongodb: "tls=true&tlsCAFile=flobase-ca.pem",
+};
+
+function Encryption({ project }: { project: Project }) {
+  const [error, setError] = useState("");
+  if (!project.tls) {
+    return (
+      <p className="body-sm text-ink-muted">
+        Encryption for this project's database is being turned on. Until it is, connections are not encrypted.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-3">
+      <p className="body-sm flex items-center gap-2 text-ink">
+        <span className="size-2 rounded-full bg-success" aria-hidden />
+        Connections are encrypted with TLS.
+      </p>
+      {verifyHint[project.engine] ? (
+        <p className="body-sm text-ink-muted">
+          The connection strings require encryption. To also verify you are talking to this server, download the CA certificate
+          and use <span className="font-mono">{verifyHint[project.engine]}</span>.
+        </p>
+      ) : (
+        <p className="body-sm text-ink-muted">
+          The connection string requires encryption. MySQL uses a certificate it made itself, so clients encrypt without
+          verifying the server.
+        </p>
+      )}
+      {verifyHint[project.engine] && (
+        <div>
+          <Button onClick={() => downloadCA().catch((e) => setError((e as Error).message))}>Download CA certificate</Button>
+        </div>
+      )}
+      {error && <Notice tone="danger">{error}</Notice>}
+    </div>
   );
 }
 

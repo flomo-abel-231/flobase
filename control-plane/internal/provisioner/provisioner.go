@@ -28,6 +28,9 @@ type Spec struct {
 	// Restore, when set, fills the new database from another project's
 	// backups instead of starting empty.
 	Restore *Restore
+	// TLSCert and TLSKey are the database's server certificate, PEM; the
+	// driver fills them in when TLS is on (see tls.go).
+	TLSCert, TLSKey string
 }
 
 // Restore picks the source and the moment a new project starts from.
@@ -57,6 +60,7 @@ type Endpoint struct {
 	Host       string
 	Port       int
 	PoolerPort int // 0 when the engine has no pooler
+	TLS        bool
 }
 
 type Provisioner interface {
@@ -77,6 +81,9 @@ type Provisioner interface {
 	// Recreate replaces the project's containers with ones built from s,
 	// keeping its data and published ports.
 	Recreate(ctx context.Context, s Spec) error
+	// EnsureTLS turns TLS on for a project made before it existed; true
+	// when it changed something.
+	EnsureTLS(ctx context.Context, s Spec) (bool, error)
 	// Logs returns the last lines a project service wrote.
 	Logs(ctx context.Context, ref, service string, lines int) (string, error)
 

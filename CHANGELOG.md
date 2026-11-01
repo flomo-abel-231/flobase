@@ -2,6 +2,11 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Encrypted database connections.** Postgres, the connection pooler and MongoDB-compatible projects serve TLS with a certificate from the install's own certificate authority; MySQL uses the certificate it makes itself. Connection strings require encryption (`sslmode=require`, `ssl-mode=REQUIRED`, `tls=true`), and **Configuration → Connect** offers the CA certificate for clients that verify the server. The pooler and MongoDB-compatible projects refuse unencrypted connections.
+- Existing projects are switched over automatically when FloBase starts: Postgres reloads its settings without a restart, and the pooler (or FerretDB) restarts on the same port, ending its open connections once.
+
 ## 0.8.0 — 2026-11-01
 
 - **FloBase is self-hosted software, funded by donations.** There are no public cloud plans: self-hosted is the supported mode, and cloud mode stays in the code, not offered.
