@@ -2,7 +2,7 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.10.0 — 2026-11-01
 
 - **Home page for the hosted cloud.** With `FLOBASE_MODE=cloud`, visitors who aren't signed in see a front page with what FloBase does and its plans, with **Sign in** and **Start free**. Self-hosted FloBase still opens on sign-in.
 - **Free plan in the cloud: 500 MB, deleted after 30 days.** Free projects are deleted, with their data, 30 days after they are created (or move to Free). The workspace's owners and admins are warned 15, 10, 5, 3 and 1 days before, by email and with a banner in the dashboard. Free projects made before this update get at least 15 days.
