@@ -30,25 +30,27 @@ const (
 )
 
 type Project struct {
-	ID           string    `json:"id"`
-	WorkspaceID  string    `json:"workspace_id"`
-	Ref          string    `json:"ref"`
-	Name         string    `json:"name"`
-	Engine       string    `json:"engine"`
-	Region       string    `json:"region"`
-	Plan         string    `json:"plan"`
-	Status       string    `json:"status"`
-	StatusDetail string    `json:"status_detail"`
-	DBHost       string    `json:"-"`
-	DBPort       int       `json:"-"`
-	PoolerPort   int       `json:"-"`
-	DBUser       string    `json:"-"`
-	DBPassword   string    `json:"-"`
-	DBName       string    `json:"-"`
-	JWTSecret    string    `json:"-"`
-	AnonKey      string    `json:"-"`
-	ServiceKey   string    `json:"-"`
-	TLS          bool      `json:"tls"`
+	ID           string `json:"id"`
+	WorkspaceID  string `json:"workspace_id"`
+	Ref          string `json:"ref"`
+	Name         string `json:"name"`
+	Engine       string `json:"engine"`
+	Region       string `json:"region"`
+	Plan         string `json:"plan"`
+	Status       string `json:"status"`
+	StatusDetail string `json:"status_detail"`
+	DBHost       string `json:"-"`
+	DBPort       int    `json:"-"`
+	PoolerPort   int    `json:"-"`
+	DBUser       string `json:"-"`
+	DBPassword   string `json:"-"`
+	DBName       string `json:"-"`
+	JWTSecret    string `json:"-"`
+	AnonKey      string `json:"-"`
+	ServiceKey   string `json:"-"`
+	TLS          bool   `json:"tls"`
+	// AllowedCIDRs may reach the database ports; empty = anyone.
+	AllowedCIDRs []string  `json:"allowed_cidrs"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -155,13 +157,13 @@ func (s *Store) Region(ctx context.Context, id string) (catalog.Region, error) {
 }
 
 const projectColumns = `id, coalesce(workspace_id::text, ''), ref, name, engine, region, plan, status, status_detail, db_host, db_port, pooler_port,
-	db_user, db_password, db_name, jwt_secret, anon_key, service_key, tls, created_at, updated_at`
+	db_user, db_password, db_name, jwt_secret, anon_key, service_key, tls, allowed_cidrs, created_at, updated_at`
 
 func scanProject(row pgx.Row) (Project, error) {
 	var p Project
 	err := row.Scan(&p.ID, &p.WorkspaceID, &p.Ref, &p.Name, &p.Engine, &p.Region, &p.Plan, &p.Status, &p.StatusDetail,
 		&p.DBHost, &p.DBPort, &p.PoolerPort, &p.DBUser, &p.DBPassword, &p.DBName, &p.JWTSecret, &p.AnonKey, &p.ServiceKey,
-		&p.TLS, &p.CreatedAt, &p.UpdatedAt)
+		&p.TLS, &p.AllowedCIDRs, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, ErrNotFound
 	}
@@ -228,6 +230,15 @@ func (s *Store) SetActive(ctx context.Context, ref, host string, port, poolerPor
 		update projects set status = $2, status_detail = '', db_host = $3, db_port = $4, pooler_port = $5,
 			updated_at = now()
 		where ref = $1`, ref, StatusActive, host, port, poolerPort)
+	return err
+}
+
+// SetAllowedCIDRs replaces a project's network restrictions.
+func (s *Store) SetAllowedCIDRs(ctx context.Context, ref string, cidrs []string) error {
+	if cidrs == nil {
+		cidrs = []string{}
+	}
+	_, err := s.db.Exec(ctx, `update projects set allowed_cidrs = $2, updated_at = now() where ref = $1`, ref, cidrs)
 	return err
 }
 

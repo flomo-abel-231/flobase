@@ -4,6 +4,8 @@ All notable changes to FloBase. Versions follow [semantic versioning](https://se
 
 ## Unreleased
 
+- **Network restrictions:** each project can limit which IP addresses (IPv4 or IPv6, single addresses or ranges) reach its database and pooler, under **Configuration → Network**, with an **Add my IP** button. Only that project's ports are affected; the server, the dashboard and the project's APIs are untouched. Works on region servers too, and the rules survive reboots.
+
 - **Encrypted database connections.** Postgres, the connection pooler and MongoDB-compatible projects serve TLS with a certificate from the install's own certificate authority; MySQL uses the certificate it makes itself. Connection strings require encryption (`sslmode=require`, `ssl-mode=REQUIRED`, `tls=true`), and **Configuration → Connect** offers the CA certificate for clients that verify the server. The pooler and MongoDB-compatible projects refuse unencrypted connections.
 - Existing projects are switched over automatically when FloBase starts: Postgres reloads its settings without a restart, and the pooler (or FerretDB) restarts on the same port, ending its open connections once.
 

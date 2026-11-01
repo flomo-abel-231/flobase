@@ -96,6 +96,7 @@ func (s *Server) Routes() http.Handler {
 	s.regionRoutes(mux)
 	s.workspaceRoutes(mux)
 	s.tlsRoutes(mux)
+	s.networkRoutes(mux)
 	return mux
 }
 
@@ -402,6 +403,7 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Teardown(ref string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	p, _ := s.store.Project(ctx, ref)
 	if err := s.prov.Delete(ctx, ref); err != nil {
 		s.log.Error("delete failed", "ref", ref, "err", err)
 		_ = s.store.SetStatus(context.Background(), ref, store.StatusFailed, "Delete failed: "+err.Error())
@@ -412,6 +414,12 @@ func (s *Server) Teardown(ref string) {
 		return
 	}
 	s.log.Info("project deleted", "ref", ref)
+	// Its ports are free for other projects: drop its restrictions.
+	if len(p.AllowedCIDRs) > 0 {
+		if err := s.applyFirewall(ctx, p.Region); err != nil {
+			s.log.Warn("apply network restrictions", "region", p.Region, "err", err)
+		}
+	}
 }
 
 func (s *Server) internal(w http.ResponseWriter, err error) {
