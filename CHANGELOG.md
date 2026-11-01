@@ -2,6 +2,13 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## 0.3.0 — 2026-11-01
+
+- Storage locations: add S3-compatible buckets for off-site backup copies on the Off-site backups page, with presets for AWS S3, Cloudflare R2, Backblaze B2, Wasabi and MinIO. FloBase tests the bucket before saving, and you can switch the active location or stop copying without a restart. Before, off-site storage could only be set in `.env`, which still works and takes precedence.
+- Deleting a project asks you to type its name. When the project holds data, FloBase offers to back it up to cloud storage first, so it can be restored from Off-site backups later. The API's delete now needs `{"confirm": "<project name>"}`.
+- New sky blue look, in light and dark mode, for the dashboard, the desktop app and its icon.
+- A cloud backup finishes in seconds instead of about a minute: FloBase no longer waits for the WAL file Postgres is still writing.
+
 ## 0.2.1 — 2026-11-01
 
 - FloBase Desktop on macOS finds an installed Docker Desktop or OrbStack. Apps opened from Finder do not get the terminal's PATH, so 0.2.0 installed its own engine even when Docker Desktop was there.

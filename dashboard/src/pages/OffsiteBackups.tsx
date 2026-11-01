@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, type OffsiteList } from "../api";
-import { Button, Card, Notice, PageHeader } from "../ui";
+import { Button, Notice, PageHeader } from "../ui";
 import { navigate } from "../App";
+import { StorageLocations } from "./StorageLocations";
 
 // Every project with copies in off-site storage. Projects this FloBase no
 // longer runs (deleted here, or from a lost machine) can be restored as new
@@ -11,9 +12,14 @@ export function OffsiteBackups() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
-  useEffect(() => {
-    api.offsite().then(setList).catch((e) => setError(e.message));
-  }, []);
+  const load = () => {
+    api
+      .offsite()
+      .then((l) => (setList(l), setError("")))
+      .catch((e) => setError(e.message));
+  };
+
+  useEffect(load, []);
 
   const restore = async (ref: string, name: string) => {
     setBusy(ref);
@@ -41,20 +47,17 @@ export function OffsiteBackups() {
           )
         }
       />
+      <StorageLocations onChange={load} />
+
       {error && <Notice tone="danger">{error}</Notice>}
 
-      {list && !list.enabled && (
-        <Card className="flex flex-col gap-2 p-4">
-          <h2 className="h3">Not set up</h2>
-          <p className="body-sm text-ink-muted">
-            Backups are only on this machine. Set <span className="font-mono">FLOBASE_BACKUP_S3_BUCKET</span>, its endpoint and keys,
-            and ideally <span className="font-mono">FLOBASE_BACKUP_ENCRYPTION_KEY</span> in <span className="font-mono">.env</span>,
-            then restart FloBase. Any S3-compatible service works: AWS S3, Cloudflare R2, Backblaze B2, Wasabi or MinIO.
-          </p>
-        </Card>
+      {list?.enabled && (
+        <div className="flex flex-col gap-1">
+          <h2 className="h3">Projects in storage</h2>
+          <p className="body-sm text-ink-muted">Every project with copies in the active location, including ones no longer on this machine.</p>
+        </div>
       )}
-
-      {list?.enabled && list.projects.length === 0 && <p className="body-sm text-ink-muted">No copies yet.</p>}
+      {list?.enabled && list.projects.length === 0 && <p className="body-sm text-ink-muted">No copies yet; the first appear within a minute.</p>}
 
       {list?.enabled && list.projects.length > 0 && (
         <div className="overflow-x-auto rounded-md border border-border bg-surface-raised">
