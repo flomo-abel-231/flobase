@@ -110,13 +110,21 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) billing() bool { return s.cfg.Mode == "cloud" }
 
+// planOpen is whether a caller may start a project on a plan. FloBase does
+// not take payments yet, so in the cloud the paid plans stay closed to
+// everyone but the platform's owner.
+func (s *Server) planOpen(r *http.Request, p catalog.Plan) bool {
+	return !s.billing() || p.Price == 0 || who(r).role() == "owner"
+}
+
 // providers lists which regions this mode can show. Every region is a
 // Docker host: the local one or a region server.
 func (s *Server) providers() []string { return []string{"docker"} }
 
 type planView struct {
 	catalog.Plan
-	Markup float64 `json:"markup,omitempty"`
+	Markup    float64 `json:"markup,omitempty"`
+	Available bool    `json:"available"`
 }
 
 // regionOffer is a region as the new-project form shows it, with each
@@ -134,7 +142,7 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 	}
 	plans := make([]planView, 0, len(catalog.Plans))
 	for _, p := range catalog.Plans {
-		v := planView{Plan: p}
+		v := planView{Plan: p, Available: s.planOpen(r, p)}
 		if s.billing() {
 			v.Price = p.PriceIn(1, s.cfg.Markup)
 			if p.EstCost > 0 && v.Price > 0 {
@@ -293,6 +301,10 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	plan, ok := catalog.PlanByID(req.Plan)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "Unknown plan.")
+		return
+	}
+	if !s.planOpen(r, plan) {
+		writeError(w, http.StatusPaymentRequired, plan.Name+" opens once payments are set up. Start on Free for now.")
 		return
 	}
 	region, err := s.store.Region(r.Context(), req.Region)
