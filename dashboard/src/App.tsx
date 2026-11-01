@@ -7,6 +7,9 @@ import { NewProject } from "./pages/NewProject";
 import { ProjectDetail } from "./pages/ProjectDetail";
 import { OffsiteBackups } from "./pages/OffsiteBackups";
 import { Settings } from "./pages/Settings";
+import { Assistant } from "./pages/Assistant";
+import { AssistantSettings } from "./pages/AssistantSettings";
+import { Automations } from "./pages/Automations";
 
 // Hash routes keep the dashboard servable as static files from any host.
 type Route =
@@ -14,6 +17,9 @@ type Route =
   | { page: "new" }
   | { page: "offsite" }
   | { page: "settings" }
+  | { page: "assistant"; chat?: string }
+  | { page: "assistant-settings" }
+  | { page: "automations" }
   | { page: "project"; ref: string; tab: string; section?: string };
 
 function parseRoute(hash: string): Route {
@@ -23,6 +29,10 @@ function parseRoute(hash: string): Route {
   if (path === "/new") return { page: "new" };
   if (path === "/offsite") return { page: "offsite" };
   if (path === "/settings") return { page: "settings" };
+  if (path === "/assistant/settings") return { page: "assistant-settings" };
+  const chat = path.match(/^\/assistant(?:\/([0-9a-f-]{36}))?$/);
+  if (chat) return { page: "assistant", chat: chat[1] };
+  if (path === "/automations") return { page: "automations" };
   return { page: "projects" };
 }
 
@@ -37,6 +47,13 @@ const icons: Record<string, ReactNode> = {
     <>
       <circle cx="10" cy="10" r="2.5" />
       <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" />
+    </>
+  ),
+  assistant: <path d="M10 2.5l1.6 4.4 4.4 1.6-4.4 1.6L10 14.5l-1.6-4.4L4 8.5l4.4-1.6zM15.5 13l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" />,
+  automations: (
+    <>
+      <circle cx="10" cy="10" r="7" />
+      <path d="M10 6v4l2.5 2.5" />
     </>
   ),
   logout: <path d="M8 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M12 6.5 15.5 10 12 13.5M15.5 10H8" />,
@@ -101,7 +118,8 @@ export function App() {
   if (authed === null) return null;
   if (!authed) return <Login onSignedIn={() => setAuthed(true)} />;
 
-  const section = route.page === "project" || route.page === "new" ? "projects" : route.page;
+  const section =
+    route.page === "project" || route.page === "new" ? "projects" : route.page === "assistant-settings" ? "assistant" : route.page;
 
   const sidebar = (
     <nav aria-label="Main" className="flex h-full flex-col gap-6 px-3 py-4">
@@ -111,6 +129,8 @@ export function App() {
       </a>
       <div className="flex flex-col gap-0.5">
         <NavLink href="#/" icon="projects" label="Projects" active={section === "projects"} />
+        <NavLink href="#/assistant" icon="assistant" label="Assistant" active={section === "assistant"} />
+        <NavLink href="#/automations" icon="automations" label="Automations" active={section === "automations"} />
         <NavLink href="#/offsite" icon="offsite" label="Off-site backups" active={section === "offsite"} />
         <NavLink href="#/settings" icon="settings" label="Settings" active={section === "settings"} />
       </div>
@@ -164,6 +184,9 @@ export function App() {
         {route.page === "new" && <NewProject />}
         {route.page === "offsite" && <OffsiteBackups />}
         {route.page === "settings" && <Settings config={config} />}
+        {route.page === "assistant" && <Assistant chatId={route.chat} />}
+        {route.page === "assistant-settings" && <AssistantSettings />}
+        {route.page === "automations" && <Automations />}
         {route.page === "project" && (
           <ProjectDetail key={route.ref} projectRef={route.ref} tab={route.tab} section={route.section} />
         )}

@@ -46,6 +46,8 @@ type Server struct {
 	// updater is nil when the provisioner cannot start the updater.
 	updater Updater
 	updates updateState
+	// assistant tracks conversations being worked on.
+	assistant assistantState
 }
 
 func New(cfg Config, st *store.Store, prov provisioner.Provisioner, log *slog.Logger) *Server {
@@ -71,6 +73,7 @@ func (s *Server) Routes() http.Handler {
 	s.storageRoutes(mux)
 	s.deletionRoutes(mux)
 	s.updateRoutes(mux)
+	s.assistantRoutes(mux)
 	return mux
 }
 
