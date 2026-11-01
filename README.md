@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/flomo-abel-231/flobase/actions/workflows/ci.yml/badge.svg)](https://github.com/flomo-abel-231/flobase/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/flomo-abel-231/flobase)](https://github.com/flomo-abel-231/flobase/releases/latest) [![Licence](https://img.shields.io/badge/licence-Apache%202.0-blue)](LICENSE)
 
-Open-source cloud databases: every project gets its own Postgres, MySQL or MongoDB-compatible database, with API keys and a dashboard. Postgres projects also get a REST and GraphQL API, user sign-up and login, connection pooling, and backups with point-in-time recovery, compatible with the Supabase client libraries. One codebase runs self-hosted on a single machine or as a managed multi-cloud service.
+Open-source databases you host yourself: every project gets its own Postgres, MySQL or MongoDB-compatible database, with API keys and a dashboard. Postgres projects also get a REST and GraphQL API, user sign-up and login, connection pooling, and backups with point-in-time recovery, compatible with the Supabase client libraries. Run it on one machine, or add servers in other locations as regions.
+
+FloBase is free under the Apache 2.0 licence, with no paid plans. It is funded by donations, grants and support contracts: see [Support FloBase](#support-flobase).
 
 This covers Phase 1 and the core of Phase 2 of the [feature plan](https://claude.ai/artifact/F4DZHUW5PtAGfXaofZmCkf).
 
@@ -77,8 +79,9 @@ MongoDB itself is under the SSPL, which would force the whole service's source o
 
 ## Modes
 
-- `FLOBASE_MODE=self-hosted` (default): one organisation, the local Docker region, sizes without prices.
-- `FLOBASE_MODE=cloud`: plans with prices (estimated server cost in the region × `FLOBASE_MARKUP`, default 1.6, rounded up to .99).
+FloBase is offered as self-hosted software only. `FLOBASE_MODE=self-hosted` is the default and the supported mode: plan sizes without prices, and accounts by invitation.
+
+`FLOBASE_MODE=cloud` is kept in the code for a possible hosted service later and is not offered: it opens public sign-up and shows prices (estimated server cost in the region × `FLOBASE_MARKUP`, default 1.6, rounded up to .99).
 
 ## Regions
 
@@ -186,14 +189,26 @@ What you write, and what the assistant reads from your projects, goes to the mod
 
 A **workspace** is one organization: its own projects, members, invites, assistant models and keys, conversations and automations. Nothing is shared between workspaces, and the API checks membership on every request, so one organization can never read or change another's projects, even by guessing a project's ref. People can belong to several workspaces and switch between them in the sidebar.
 
-- **Cloud mode:** anyone can create an account on the sign-in page and gets a workspace of their own, named after their organization. The platform owner, who runs the FloBase, is the account that signs up with `FLOBASE_OWNER_EMAIL`, or the first account when that is empty. The owner and platform admins also see **Platform → Regions** and **Off-site backups**, and updates under Settings. They do not see other workspaces' projects.
-- **Self-hosted mode:** sign-up is closed. The first person creates the owner account with the install's API token (`FLOBASE_API_TOKEN` in `.env`), so nobody else can claim a public server first, and invites the rest.
+- **The owner** runs this FloBase. On a new install, the first person to open the dashboard creates the owner account: with the email set as `FLOBASE_OWNER_EMAIL` in `.env` (the install script takes it as a variable), or with the install's API token (`FLOBASE_API_TOKEN`). Either way nobody else can claim a public server first. The owner and platform admins also see **Infrastructure → Regions** and **Off-site backups**, and updates under Settings. They do not see other workspaces' projects.
+- **Everyone else** joins by invitation; there is no public sign-up. (Cloud mode, which is not offered, would open sign-up with a workspace per account.)
 
 A workspace's owner and admins invite people under **Members**: FloBase makes a one-time link, valid for 7 days, that you send yourself (FloBase does not send email yet). Someone new picks a name and password; someone who already has an account accepts with their password. The workspace's owner can rename it, and delete it once its projects are gone, under **Workspace**.
 
 Signing in works like Supabase Auth: a JWT access token valid for 1 hour and a refresh token that is exchanged for a new pair before it runs out. Each refresh token works once, and reusing one ends its session. The dashboard keeps the refresh token in an httpOnly cookie and the access token in memory only. Signing out, removing someone and changing a password take effect at once. After 10 wrong passwords for an email, sign-in for it pauses for 15 minutes, and one IP address can create at most 10 accounts in 15 minutes.
 
 The API token works with the platform owner's rights across every workspace: the `flobase` CLI and FloBase Desktop sign in with it. Send `X-FloBase-Workspace: <id>` with it to act in one workspace only; the assistant does this, so its tools reach only the conversation's workspace.
+
+## Support FloBase
+
+FloBase has no paid plans, so it depends on people and organizations who find it useful:
+
+- **Sponsor on GitHub** at [github.com/sponsors/flomo-abel-231](https://github.com/sponsors/flomo-abel-231), monthly or once.
+- **Donate** once through Stripe, $1 to $500: open **Support FloBase** in the dashboard's sidebar, or use a link directly: [$5](https://donate.stripe.com/eVqcN42AfbMg1ow4d84Ja02) · [$20](https://donate.stripe.com/28E6oG2Af7w0aZ6dNI4Ja04) · [$100](https://donate.stripe.com/28EcN4deTcQkc3a2504Ja06). Donations go to Manevia LLC, which develops FloBase.
+- **Grants and sponsorship:** foundations, public programmes and companies can fund the roadmap. Sponsors are thanked here and in the release notes.
+- **Paid support:** help setting FloBase up and a direct line when something breaks.
+- **For free:** star the repository, report bugs, improve the docs, send pull requests.
+
+Maintainers set the GitHub Sponsors account, the Stripe Payment Links and the contact address in [`dashboard/src/support.ts`](dashboard/src/support.ts), and the repository's Sponsor button in [`.github/FUNDING.yml`](.github/FUNDING.yml). Payments go straight to GitHub or Stripe; FloBase never handles them.
 
 ## Security notes
 

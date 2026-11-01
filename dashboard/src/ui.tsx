@@ -1,8 +1,8 @@
-// Dashboard building blocks on the FloBase design system, laid out in the
-// dense style of Coolify's dashboard: compact controls, small radii, boxes
-// that light up on hover. Rules they follow: brand is the only interactive
-// colour, boxes are bordered not shadowed, status always carries a word, and
-// anything copyable is set in mono.
+// Dashboard building blocks on the FloBase design system, in the style of
+// Coolify's current dashboard: compact 32px controls with 8px corners and a
+// small depth shadow, rounded cards that lift on hover, hairline borders.
+// Rules they follow: brand is the only interactive colour, status always
+// carries a word, and anything copyable is set in mono.
 
 import { useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import type { Status } from "./api";
@@ -11,9 +11,9 @@ import { getThemePref, setThemePref, type ThemePref } from "./theme";
 type ButtonVariant = "primary" | "secondary" | "danger";
 
 const buttonStyles: Record<ButtonVariant, string> = {
-  primary: "bg-brand text-on-brand hover:opacity-90 border border-brand",
-  secondary: "bg-surface-raised text-ink border border-border-strong hover:bg-surface-sunken",
-  danger: "bg-surface-raised text-danger border border-danger hover:bg-surface-sunken",
+  primary: "bg-brand text-on-brand border border-brand hover:brightness-110",
+  secondary: "bg-surface-raised text-ink border border-border hover:border-border-strong",
+  danger: "bg-surface-raised text-danger border border-danger/60 hover:border-danger",
 };
 
 export function Button({
@@ -23,43 +23,65 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
   return (
     <button
-      className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-sm px-3 text-[13px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${buttonStyles[variant]} ${className}`}
+      className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[13px] font-medium shadow-[0_2px_0_rgb(0_0_0/0.22)] transition duration-[120ms] hover:-translate-y-px active:translate-y-0.5 active:shadow-none disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none ${buttonStyles[variant]} ${className}`}
       {...props}
     />
   );
 }
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-md border border-border bg-surface-raised ${className}`}>{children}</div>;
+  return <div className={`rounded-xl border border-border bg-surface-raised shadow-sm ${className}`}>{children}</div>;
 }
 
-// Box is a clickable resource tile: title, a line of detail, status on the
-// right, as Coolify lists projects and resources.
-export function Box({ href, title, detail, aside, children }: { href: string; title: ReactNode; detail?: ReactNode; aside?: ReactNode; children?: ReactNode }) {
+// Box is a clickable resource card, as Coolify lists projects: an icon
+// tile, the title with a line of detail, and a footer for status.
+export function Box({
+  href,
+  title,
+  detail,
+  aside,
+  icon,
+  children,
+}: {
+  href: string;
+  title: ReactNode;
+  detail?: ReactNode;
+  aside?: ReactNode;
+  icon?: ReactNode;
+  children?: ReactNode;
+}) {
   return (
     <a
       href={href}
-      className="group flex min-h-16 flex-col justify-center gap-1 rounded-md border border-border bg-surface-raised px-4 py-3 transition hover:border-border-strong hover:bg-surface-sunken"
+      className="group flex min-h-28 flex-col rounded-xl border border-border bg-surface-raised p-3 shadow-sm transition duration-150 hover:-translate-y-px hover:border-border-strong hover:shadow-md"
     >
-      <div className="flex items-start justify-between gap-3">
-        <span className="min-w-0 truncate text-[14px] font-semibold text-ink">{title}</span>
-        {aside}
+      <div className="flex min-w-0 items-start gap-2.5">
+        {icon && (
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-[12px] font-semibold text-ink-muted">
+            {icon}
+          </span>
+        )}
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate text-[13px] leading-4 font-semibold text-ink">{title}</span>
+          {detail && <span className="mt-0.5 truncate text-[11px] leading-4 text-ink-muted">{detail}</span>}
+        </span>
       </div>
-      {detail && <span className="body-sm truncate text-ink-muted">{detail}</span>}
       {children}
+      {aside && <div className="mt-auto flex items-center justify-between border-t border-border pt-2.5">{aside}</div>}
     </a>
   );
 }
 
-// PageHeader puts the page's one action next to its title, Coolify style.
+// PageHeader puts the page's title on the left and its one action on the
+// right, Coolify style.
 export function PageHeader({ title, action, subtitle }: { title: ReactNode; action?: ReactNode; subtitle?: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="h2">{title}</h1>
-        {action}
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex min-w-0 flex-col gap-1">
+        <h1 className="truncate text-[24px] leading-7 font-semibold tracking-tight text-ink">{title}</h1>
+        {subtitle && <p className="body-sm max-w-3xl text-ink-muted">{subtitle}</p>}
       </div>
-      {subtitle && <p className="body-sm text-ink-muted">{subtitle}</p>}
+      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
     </div>
   );
 }
@@ -67,7 +89,7 @@ export function PageHeader({ title, action, subtitle }: { title: ReactNode; acti
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="label text-ink">{label}</span>
+      <span className="text-[13px] leading-4 font-medium text-ink">{label}</span>
       {children}
       {hint && <span className="body-sm text-ink-muted">{hint}</span>}
     </label>
@@ -77,7 +99,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className="h-8 rounded-sm border border-border-strong bg-surface-sunken px-2.5 text-[14px] text-ink placeholder:text-ink-muted"
+      className="h-8 rounded-lg border border-border bg-surface-sunken px-2.5 text-[14px] text-ink transition duration-[120ms] placeholder:text-ink-muted hover:border-border-strong focus:border-brand focus:outline-none max-sm:text-[16px]"
       {...props}
     />
   );
@@ -102,7 +124,7 @@ export function StatusBadge({ status }: { status: Status }) {
 
 export function Tag({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex items-center rounded-sm border border-border bg-surface-sunken px-1.5 py-0.5 label text-ink-muted">
+    <span className="inline-flex items-center rounded-md border border-border bg-surface px-1.5 py-0.5 label text-ink-muted">
       {children}
     </span>
   );
@@ -124,7 +146,7 @@ export function CopyField({ label, value, secret = false }: { label: string; val
     <div className="flex flex-col gap-2">
       <span className="label text-ink">{label}</span>
       <div className="flex min-w-0 items-center gap-2">
-        <code className="code min-w-0 flex-1 truncate rounded-sm border border-border-strong bg-surface-sunken px-2.5 py-1.5 text-ink">
+        <code className="code min-w-0 flex-1 truncate rounded-lg border border-border bg-surface-sunken px-2.5 py-1.5 text-ink">
           {shown ? value : "•".repeat(Math.min(value.length, 32))}
         </code>
         {secret && (
@@ -143,7 +165,7 @@ export function CopyField({ label, value, secret = false }: { label: string; val
 export function Notice({ tone, children }: { tone: "danger" | "warning"; children: ReactNode }) {
   const color = tone === "danger" ? "border-danger text-danger" : "border-warning text-warning";
   return (
-    <div role="alert" className={`rounded-md border bg-surface-raised px-4 py-3 body-sm ${color}`}>
+    <div role="alert" className={`rounded-xl border bg-surface-raised px-4 py-3 body-sm ${color}`}>
       <strong className="font-medium">{tone === "danger" ? "Error: " : "Note: "}</strong>
       {children}
     </div>
@@ -180,7 +202,7 @@ export function ThemeSwitch() {
     setPref(value);
   };
   return (
-    <div role="group" aria-label="Theme" className="inline-flex rounded-md border border-border-strong bg-surface-raised p-0.5">
+    <div role="group" aria-label="Theme" className="inline-flex rounded-lg border border-border bg-surface-raised p-0.5">
       {themeOptions.map((o) => (
         <button
           key={o.value}
@@ -189,7 +211,7 @@ export function ThemeSwitch() {
           aria-pressed={pref === o.value}
           title={o.label}
           onClick={() => choose(o.value)}
-          className={`inline-flex size-8 items-center justify-center rounded-sm transition ${
+          className={`inline-flex size-7 items-center justify-center rounded-md transition ${
             pref === o.value ? "bg-brand-subtle text-brand" : "text-ink-muted hover:text-ink"
           }`}
         >
@@ -202,14 +224,15 @@ export function ThemeSwitch() {
   );
 }
 
-export function Logo() {
+export function Logo({ version }: { version?: string }) {
   return (
     <span className="inline-flex items-center gap-2">
-      <svg viewBox="0 0 32 32" className="size-7" aria-hidden>
+      <svg viewBox="0 0 32 32" className="size-6" aria-hidden>
         <rect width="32" height="32" rx="8" className="fill-brand" />
         <path d="M10 9h13v3.5h-9v3h7.5V19H14v5h-4z" className="fill-on-brand" />
       </svg>
-      <span className="h3 text-ink">FloBase</span>
+      <span className="text-[15px] font-semibold tracking-tight text-ink">FloBase</span>
+      {version && <span className="rounded-md border border-border px-1 text-[10.5px] leading-4 text-ink-muted">v{version}</span>}
     </span>
   );
 }

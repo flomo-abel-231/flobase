@@ -110,7 +110,8 @@ cd /data/flobase && docker compose up -d
 | --- | --- |
 | `FLOBASE_API_TOKEN` | Owner-level token for the API, the CLI and creating the first account. Anyone with it controls the server's Docker; keep it secret. |
 | `FLOBASE_PLATFORM_DB_PASSWORD` | Password of FloBase's own database. Do not change it after install. |
-| `FLOBASE_MODE` | `self-hosted` (default) or `cloud` (plans with prices). Regions on other servers are added in the dashboard under **Regions** in either mode. |
+| `FLOBASE_MODE` | `self-hosted`, the default and the supported mode. (`cloud`, with public sign-up and prices, is kept for later and not offered.) |
+| `FLOBASE_OWNER_EMAIL` | Your email: the owner account can be created with it, without the API token. |
 | `FLOBASE_PUBLIC_HOST` | Host your apps use for direct database connections. |
 | `FLOBASE_GATEWAY_URL` | Public URL of the project APIs, shown to developers and used by auth emails. |
 | `FLOBASE_PORT`, `FLOBASE_GATEWAY_PORT` | Host ports for the dashboard and the project APIs. |

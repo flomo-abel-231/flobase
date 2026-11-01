@@ -2,6 +2,14 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **FloBase is self-hosted software, funded by donations.** There are no public cloud plans: self-hosted is the supported mode, and cloud mode stays in the code, not offered.
+- **Support FloBase** page in the sidebar: sponsor on GitHub, give once through Stripe ($1, $2, $5, $10, $20, $50, $100 or $500), ask about grants, sponsorship or paid support, or help for free. The links are set in `dashboard/src/support.ts`.
+- New dashboard layout modelled on Coolify's: a fixed top bar with the workspace switcher, a sidebar in sections (Workspace, Manage, Infrastructure), near-black panels in dark mode, rounded project cards with an engine tile and a status footer, and buttons and inputs with 8px corners. On phones the menu opens as a drawer from the right.
+- The owner account can be created with the email set as `FLOBASE_OWNER_EMAIL`, without the API token. The install script takes `FLOBASE_OWNER_EMAIL` as a variable.
+- Fixed: someone removed from the workspace their browser last used was signed out on every visit; the dashboard now forgets that workspace and opens another.
+
 ## 0.7.0 — 2026-11-01
 
 - **Workspaces:** each workspace is its own organization with its own projects, members, invites, assistant models, conversations and automations, and nothing is shared between them. The API checks membership on every project request. People can belong to several workspaces and switch in the sidebar; **Workspace** creates, renames and deletes them.
