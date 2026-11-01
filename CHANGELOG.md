@@ -8,6 +8,7 @@ All notable changes to FloBase. Versions follow [semantic versioning](https://se
 - A permission setting decides what it may do without asking: read only, ask before changes (the default), or ask before deletes. Waiting actions show Approve and Refuse in the conversation. Passwords, keys and connection strings are never sent to the model.
 - **Automations:** prompts the assistant runs every hour, day or week, each run kept as a conversation.
 - The SQL API takes `"read_only": true` to run a query in read-only transactions.
+- Light and dark mode use neutral greys for backgrounds, borders and text; sky blue is only the accent (buttons, links, the selected item, focus rings).
 
 ## 0.4.0 — 2026-11-01
 
