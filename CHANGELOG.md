@@ -2,6 +2,10 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Reset password** under a project's Configuration → Connect replaces a leaked database password with a new random one, for Postgres, MySQL and MongoDB projects. Every database user that had the old password gets the new one, the project's services restart with it on the same ports, and open connections are closed.
+
 ## 0.5.0 — 2026-11-01
 
 - **Assistant:** bring your own model and API key, and let it work on your FloBase. It can list and create projects, run SQL, manage tables and auth users, take backups, restore, and read logs. Supports Claude (Anthropic) and any OpenAI-compatible service: OpenAI, Gemini, OpenRouter, Groq, Mistral, DeepSeek, xAI, or Ollama on your machine.

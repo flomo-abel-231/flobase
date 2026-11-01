@@ -62,6 +62,7 @@ type container struct {
 	cmd         []string
 	env         []string
 	port        int // container port published on the host; 0 = not published
+	hostPort    int // host port to publish on; 0 = Docker picks a free one
 	mounts      []mount
 	healthcheck []string
 	// oneShot containers run a setup script to completion and are removed
@@ -268,7 +269,11 @@ func (d *Docker) run(ctx context.Context, s Spec, c container, name, network str
 		port := strconv.Itoa(c.port) + "/tcp"
 		config["ExposedPorts"] = map[string]any{port: map[string]any{}}
 		// An empty HostPort lets Docker pick a free port.
-		host["PortBindings"] = map[string]any{port: []map[string]string{{"HostPort": ""}}}
+		hostPort := ""
+		if c.hostPort != 0 {
+			hostPort = strconv.Itoa(c.hostPort)
+		}
+		host["PortBindings"] = map[string]any{port: []map[string]string{{"HostPort": hostPort}}}
 	}
 	if c.healthcheck != nil {
 		config["Healthcheck"] = map[string]any{
@@ -481,9 +486,15 @@ func demux(raw []byte) string {
 // exec runs a command in a running container and returns its output; a
 // non-zero exit is an error carrying that output.
 func (d *Docker) exec(ctx context.Context, name, user string, cmd ...string) (string, error) {
+	return d.execEnv(ctx, name, user, nil, cmd...)
+}
+
+// execEnv is exec with extra environment variables, which keep secrets out
+// of the command line.
+func (d *Docker) execEnv(ctx context.Context, name, user string, env []string, cmd ...string) (string, error) {
 	var created struct{ Id string }
 	if err := d.call(ctx, "POST", "/containers/"+name+"/exec", map[string]any{
-		"Cmd": cmd, "User": user, "AttachStdout": true, "AttachStderr": true,
+		"Cmd": cmd, "User": user, "Env": env, "AttachStdout": true, "AttachStderr": true,
 	}, &created); err != nil {
 		return "", err
 	}
