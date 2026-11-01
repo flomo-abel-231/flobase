@@ -83,7 +83,9 @@ function General({ project }: { project: Project }) {
 }
 
 function Connect({ project }: { project: Project }) {
-  const c = project.connection;
+  // The reset answers with the new details before the next poll has them.
+  const [reset, setReset] = useState<Project | null>(null);
+  const c = (reset ?? project).connection;
   if (!c) return <p className="body-sm text-ink-muted">Connection details appear once the project is active.</p>;
   return (
     <Section title="Connect" subtitle={clientHint[project.engine]}>
@@ -104,7 +106,66 @@ function Connect({ project }: { project: Project }) {
         <CopyField label="Database" value={c.database} />
       </div>
       <CopyField label="Password" value={c.password} secret />
+      <ResetPassword project={project} onReset={setReset} />
     </Section>
+  );
+}
+
+// ResetPassword replaces a leaked password. It restarts the project's
+// services and ends open connections, so it asks first.
+function ResetPassword({ project, onReset }: { project: Project; onReset: (p: Project) => void }) {
+  const [state, setState] = useState<"idle" | "confirm" | "running" | "done">("idle");
+  const [error, setError] = useState("");
+
+  const run = async () => {
+    setState("running");
+    setError("");
+    try {
+      onReset(await api.resetPassword(project.ref));
+      setState("done");
+    } catch (e) {
+      setError((e as Error).message);
+      setState("confirm");
+    }
+  };
+
+  return (
+    <Card className="flex flex-col gap-3 p-4">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-[14px] font-semibold text-ink">Reset password</h3>
+        <p className="body-sm text-ink-muted">
+          If the password leaked, replace it with a new random one. Apps using the old password lose access until you give them
+          the new connection details.
+        </p>
+      </div>
+      {state === "idle" && (
+        <div>
+          <Button onClick={() => setState("confirm")}>Reset password…</Button>
+        </div>
+      )}
+      {(state === "confirm" || state === "running") && (
+        <div className="flex flex-col gap-3 rounded-md border border-warning bg-surface-raised p-3">
+          <p className="body-sm text-ink">
+            The project's services restart with the new password, which takes up to a minute. Open connections are closed.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="danger" onClick={run} disabled={state === "running"}>
+              {state === "running" ? "Resetting password…" : "Reset password"}
+            </Button>
+            <Button onClick={() => setState("idle")} disabled={state === "running"}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+      {state === "done" && (
+        <p role="status" className="body-sm flex items-center gap-2 text-success">
+          <span className="size-2 rounded-full bg-success" aria-hidden />
+          New password set. Update your apps with the connection details above.
+        </p>
+      )}
+      {error && <Notice tone="danger">{error}</Notice>}
+    </Card>
   );
 }
 

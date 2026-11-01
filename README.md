@@ -108,6 +108,7 @@ All routes except `health` and `config` need `Authorization: Bearer $FLOBASE_API
 | `POST /api/v1/projects` | Create: `{"name", "engine", "region", "plan"}`; returns 202 and provisions in the background |
 | `GET /api/v1/projects/{ref}` | Project with connection details and anon / service_role keys |
 | `DELETE /api/v1/projects/{ref}` | Delete the database and its data; the body must be `{"confirm": "<project name>"}` |
+| `POST /api/v1/projects/{ref}/password` | Replace the database password with a new random one; services restart on the same ports and open connections end |
 | `GET /api/v1/projects/{ref}/delete-check` | What the project holds, and whether it can be backed up to cloud storage first |
 | `POST /api/v1/projects/{ref}/backups/offsite` | Take a backup and copy it to cloud storage now (Postgres) |
 | `POST /api/v1/projects/{ref}/sql` | Run SQL as the database owner (Postgres, MySQL) |

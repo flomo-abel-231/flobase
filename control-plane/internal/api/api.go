@@ -73,6 +73,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/v1/projects", s.auth(s.createProject))
 	mux.Handle("GET /api/v1/projects/{ref}", s.auth(s.getProject))
 	mux.Handle("DELETE /api/v1/projects/{ref}", s.auth(s.deleteProject))
+	mux.Handle("POST /api/v1/projects/{ref}/password", s.auth(s.resetPassword))
 	s.dataRoutes(mux)
 	s.backupRoutes(mux)
 	s.storageRoutes(mux)
