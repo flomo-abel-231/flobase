@@ -133,10 +133,22 @@ export interface Column {
   primary: boolean;
 }
 
+// RowQuery is one page of a table: searched across all columns, sorted by
+// one, as the table editor's grid asks for it.
+export interface RowQuery {
+  offset: number;
+  limit: number;
+  search?: string;
+  sort?: string;
+  dir?: "asc" | "desc";
+}
+
 export interface TableRows {
   columns: Column[];
   rows: Record<string, unknown>[];
   total: number;
+  // Rows matching the search; equal to total without one.
+  filtered: number;
   rls: boolean;
   view: boolean;
   // Views and FloBase's own schemas can be browsed but not edited here.
@@ -604,11 +616,15 @@ export const api = {
   tables: (ref: string, schema: string) => request<TableInfo[]>("GET", `/projects/${ref}/tables?schema=${encodeURIComponent(schema)}`),
   createTable: (ref: string, schema: string, input: { name: string; rls: boolean; columns: NewColumn[] }) =>
     request<{ sql: string }>("POST", `/projects/${ref}/tables?schema=${encodeURIComponent(schema)}`, input),
-  rows: (ref: string, schema: string, table: string, offset: number, limit: number) =>
-    request<TableRows>(
-      "GET",
-      `/projects/${ref}/tables/${encodeURIComponent(table)}/rows?schema=${encodeURIComponent(schema)}&offset=${offset}&limit=${limit}`,
-    ),
+  rows: (ref: string, schema: string, table: string, q: RowQuery) => {
+    const params = new URLSearchParams({ schema, offset: String(q.offset), limit: String(q.limit) });
+    if (q.search) params.set("q", q.search);
+    if (q.sort) {
+      params.set("sort", q.sort);
+      params.set("dir", q.dir ?? "asc");
+    }
+    return request<TableRows>("GET", `/projects/${ref}/tables/${encodeURIComponent(table)}/rows?${params}`);
+  },
   insertRow: (ref: string, schema: string, table: string, values: Record<string, unknown>) =>
     request<void>("POST", `/projects/${ref}/tables/${encodeURIComponent(table)}/rows?schema=${encodeURIComponent(schema)}`, { values }),
   updateRow: (ref: string, schema: string, table: string, match: Record<string, unknown>, values: Record<string, unknown>) =>
