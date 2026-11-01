@@ -10,7 +10,7 @@ export function Account({ me, onChanged, onSignOut }: { me: Me; onChanged: (u: U
         <PageHeader title="Account" subtitle="You are signed in with the install's API token, which has the owner's rights." />
         <Card className="flex flex-col gap-3 p-4">
           <p className="body-sm text-ink">
-            The API token has no profile or password. People sign in with their own accounts; the owner invites them under Team.
+            The API token has no profile or password. People sign in with their own accounts and are invited to workspaces under Members.
           </p>
           <div>
             <Button onClick={() => void onSignOut()}>Sign out</Button>
@@ -21,7 +21,7 @@ export function Account({ me, onChanged, onSignOut }: { me: Me; onChanged: (u: U
   }
   return (
     <div className="flex max-w-3xl flex-col gap-8">
-      <PageHeader title="Account" subtitle={`${me.user.email} · ${me.user.role === "owner" ? "Owner" : me.user.role === "admin" ? "Admin" : "Member"}`} />
+      <PageHeader title="Account" subtitle={`${me.user.email}${me.user.role === "owner" ? " · Platform owner" : me.user.role === "admin" ? " · Platform admin" : ""}`} />
       <Profile user={me.user} onChanged={onChanged} />
       <Password />
       <Sessions onSignOut={onSignOut} />

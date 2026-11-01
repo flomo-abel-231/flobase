@@ -64,8 +64,11 @@ func (s *Server) assistantRoutes(mux *http.ServeMux) {
 
 // Settings and providers
 
-func (s *Server) mode(ctx context.Context) string {
-	m, err := s.store.Setting(ctx, "assistant_mode", modeAsk)
+// assistantMode is a workspace's permission setting's key.
+func assistantMode(ws string) string { return "assistant_mode:" + ws }
+
+func (s *Server) mode(ctx context.Context, ws string) string {
+	m, err := s.store.Setting(ctx, assistantMode(ws), modeAsk)
 	if err != nil || (m != modeRead && m != modeAsk && m != modeAuto) {
 		return modeAsk
 	}
@@ -94,7 +97,11 @@ func viewProvider(p store.LLMProvider) providerView {
 }
 
 func (s *Server) assistantSettings(w http.ResponseWriter, r *http.Request) {
-	list, err := s.store.LLMProviders(r.Context())
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
+	list, err := s.store.LLMProviders(r.Context(), ws)
 	if err != nil {
 		s.internal(w, err)
 		return
@@ -103,10 +110,14 @@ func (s *Server) assistantSettings(w http.ResponseWriter, r *http.Request) {
 	for _, p := range list {
 		views = append(views, viewProvider(p))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"mode": s.mode(r.Context()), "providers": views})
+	writeJSON(w, http.StatusOK, map[string]any{"mode": s.mode(r.Context(), ws), "providers": views})
 }
 
 func (s *Server) setAssistantSettings(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		Mode string `json:"mode"`
 	}
@@ -117,7 +128,11 @@ func (s *Server) setAssistantSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "The mode must be read, ask or auto.")
 		return
 	}
-	if err := s.store.SetSetting(r.Context(), "assistant_mode", req.Mode); err != nil {
+	if !who(r).canManageTeam() {
+		writeError(w, http.StatusForbidden, "Only the workspace's owner and admins can change what the assistant may do.")
+		return
+	}
+	if err := s.store.SetSetting(r.Context(), assistantMode(ws), req.Mode); err != nil {
 		s.internal(w, err)
 		return
 	}
@@ -137,9 +152,9 @@ type providerRequest struct {
 // provider validates a request and turns it into a provider. A request
 // naming a saved provider gets that provider's settings and, when it has
 // none of its own, key.
-func (s *Server) provider(ctx context.Context, req providerRequest, needModel bool) (store.LLMProvider, error) {
+func (s *Server) provider(ctx context.Context, ws string, req providerRequest, needModel bool) (store.LLMProvider, error) {
 	if req.ID != "" {
-		saved, err := s.store.LLMProvider(ctx, req.ID)
+		saved, err := s.store.LLMProvider(ctx, ws, req.ID)
 		if err != nil {
 			return saved, errors.New("Model not found.")
 		}
@@ -152,7 +167,7 @@ func (s *Server) provider(ctx context.Context, req providerRequest, needModel bo
 		}
 	}
 	p := store.LLMProvider{
-		Name: strings.TrimSpace(req.Name), Kind: req.Kind, Preset: strings.TrimSpace(req.Preset),
+		WorkspaceID: ws, Name: strings.TrimSpace(req.Name), Kind: req.Kind, Preset: strings.TrimSpace(req.Preset),
 		BaseURL: strings.TrimRight(strings.TrimSpace(req.BaseURL), "/"), APIKey: strings.TrimSpace(req.APIKey),
 		Model: strings.TrimSpace(req.Model),
 	}
@@ -195,11 +210,15 @@ func llmError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) providerModels(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	var req providerRequest
 	if !decode(w, r, &req) {
 		return
 	}
-	p, err := s.provider(r.Context(), req, false)
+	p, err := s.provider(r.Context(), ws, req, false)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -213,11 +232,15 @@ func (s *Server) providerModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	var req providerRequest
 	if !decode(w, r, &req) {
 		return
 	}
-	p, err := s.provider(r.Context(), req, true)
+	p, err := s.provider(r.Context(), ws, req, true)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -230,12 +253,16 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createProvider(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	var req providerRequest
 	if !decode(w, r, &req) {
 		return
 	}
 	req.ID = ""
-	p, err := s.provider(r.Context(), req, true)
+	p, err := s.provider(r.Context(), ws, req, true)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -253,13 +280,17 @@ func (s *Server) createProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	var req providerRequest
 	if !decode(w, r, &req) {
 		return
 	}
 	newKey := strings.TrimSpace(req.APIKey)
 	req.ID = r.PathValue("id")
-	p, err := s.provider(r.Context(), req, true)
+	p, err := s.provider(r.Context(), ws, req, true)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -268,7 +299,7 @@ func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
 		llmError(w, err)
 		return
 	}
-	if err := s.store.UpdateLLMProvider(r.Context(), req.ID, p.Name, p.Model, newKey); err != nil {
+	if err := s.store.UpdateLLMProvider(r.Context(), ws, req.ID, p.Name, p.Model, newKey); err != nil {
 		s.internal(w, err)
 		return
 	}
@@ -276,7 +307,11 @@ func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) defaultProvider(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.SetDefaultLLMProvider(r.Context(), r.PathValue("id")); errors.Is(err, store.ErrNotFound) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.SetDefaultLLMProvider(r.Context(), ws, r.PathValue("id")); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "Model not found.")
 		return
 	} else if err != nil {
@@ -287,7 +322,11 @@ func (s *Server) defaultProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteLLMProvider(r.Context(), r.PathValue("id")); errors.Is(err, store.ErrNotFound) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteLLMProvider(r.Context(), ws, r.PathValue("id")); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "Model not found.")
 		return
 	} else if err != nil {
@@ -349,7 +388,11 @@ func viewChat(c store.Chat) chatView {
 }
 
 func (s *Server) listChats(w http.ResponseWriter, r *http.Request) {
-	list, err := s.store.Chats(r.Context(), 100)
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
+	list, err := s.store.Chats(r.Context(), ws, 100)
 	if err != nil {
 		s.internal(w, err)
 		return
@@ -362,7 +405,11 @@ func (s *Server) listChats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getChat(w http.ResponseWriter, r *http.Request) {
-	c, err := s.store.Chat(r.Context(), r.PathValue("id"))
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
+	c, err := s.store.Chat(r.Context(), ws, r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "Conversation not found.")
 		return
@@ -374,12 +421,16 @@ func (s *Server) getChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteChat(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	id := r.PathValue("id")
 	if s.isRunning(id) {
 		writeError(w, http.StatusConflict, "The assistant is still working on this conversation.")
 		return
 	}
-	if err := s.store.DeleteChat(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	if err := s.store.DeleteChat(r.Context(), ws, id); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "Conversation not found.")
 		return
 	} else if err != nil {
@@ -407,13 +458,13 @@ func title(msg string) string {
 }
 
 // newChat starts a conversation with the provider given, or the default.
-func (s *Server) newChat(ctx context.Context, providerID string, automationID *string, msg string) (store.Chat, error) {
+func (s *Server) newChat(ctx context.Context, ws, providerID string, automationID *string, msg string) (store.Chat, error) {
 	var p store.LLMProvider
 	var err error
 	if providerID != "" {
-		p, err = s.store.LLMProvider(ctx, providerID)
+		p, err = s.store.LLMProvider(ctx, ws, providerID)
 	} else {
-		p, err = s.store.DefaultLLMProvider(ctx)
+		p, err = s.store.DefaultLLMProvider(ctx, ws)
 	}
 	if errors.Is(err, store.ErrNotFound) {
 		return store.Chat{}, errNoModel
@@ -423,7 +474,7 @@ func (s *Server) newChat(ctx context.Context, providerID string, automationID *s
 	st := chatState{History: llm.History{Kind: p.Kind}}
 	llm.AddUser(&st.History, msg)
 	return s.store.CreateChat(ctx, store.Chat{
-		Title: title(msg), ProviderID: &p.ID, AutomationID: automationID, Status: "running",
+		WorkspaceID: ws, Title: title(msg), ProviderID: &p.ID, AutomationID: automationID, Status: "running",
 		Transcript: mustJSON([]entry{{Role: "user", Text: msg, At: time.Now()}}),
 		State:      mustJSON(st),
 	})
@@ -432,6 +483,10 @@ func (s *Server) newChat(ctx context.Context, providerID string, automationID *s
 var errNoModel = errors.New("Add a model in the assistant's settings first.")
 
 func (s *Server) createChat(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		Message    string `json:"message"`
 		ProviderID string `json:"provider_id"`
@@ -443,7 +498,7 @@ func (s *Server) createChat(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c, err := s.newChat(r.Context(), req.ProviderID, nil, msg)
+	c, err := s.newChat(r.Context(), ws, req.ProviderID, nil, msg)
 	if errors.Is(err, errNoModel) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -456,6 +511,10 @@ func (s *Server) createChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		Message string `json:"message"`
 	}
@@ -471,7 +530,7 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "The assistant is still working on this conversation.")
 		return
 	}
-	c, st, entries, err := s.loadChat(r.Context(), id)
+	c, st, entries, err := s.loadChat(r.Context(), ws, id)
 	if err != nil {
 		s.release(id)
 		if errors.Is(err, store.ErrNotFound) {
@@ -499,6 +558,10 @@ func (s *Server) sendMessage(w http.ResponseWriter, r *http.Request) {
 
 // decide approves or refuses a tool call that is waiting.
 func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
 		CallID  string `json:"call_id"`
 		Approve bool   `json:"approve"`
@@ -511,7 +574,7 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "The assistant is still working on this conversation.")
 		return
 	}
-	c, st, entries, err := s.loadChat(r.Context(), id)
+	c, st, entries, err := s.loadChat(r.Context(), ws, id)
 	if err != nil || st.Pending == nil {
 		s.release(id)
 		writeError(w, http.StatusConflict, "Nothing in this conversation is waiting for a decision.")
@@ -593,10 +656,18 @@ func (s *Server) startChat(id string, automation bool) {
 	}
 }
 
-func (s *Server) loadChat(ctx context.Context, id string) (store.Chat, chatState, []entry, error) {
+// loadChat reads a conversation of workspace ws; the background worker
+// passes "" and works in the conversation's own workspace.
+func (s *Server) loadChat(ctx context.Context, ws, id string) (store.Chat, chatState, []entry, error) {
 	var st chatState
 	var entries []entry
-	c, err := s.store.Chat(ctx, id)
+	var c store.Chat
+	var err error
+	if ws == "" {
+		c, err = s.store.ChatByID(ctx, id)
+	} else {
+		c, err = s.store.Chat(ctx, ws, id)
+	}
 	if err != nil {
 		return c, st, entries, err
 	}
@@ -667,7 +738,7 @@ func (s *Server) settle(st *chatState, entries []entry, run func(llm.Call, *tool
 func (s *Server) runChat(id string, automation bool) {
 	defer s.release(id)
 	ctx := context.Background()
-	c, st, entries, err := s.loadChat(ctx, id)
+	c, st, entries, err := s.loadChat(ctx, "", id)
 	if err != nil {
 		s.log.Error("load conversation", "id", id, "err", err)
 		return
@@ -686,13 +757,15 @@ func (s *Server) runChat(id string, automation bool) {
 		fail("This conversation's model was removed. Start a new conversation.")
 		return
 	}
-	p, err := s.store.LLMProvider(ctx, *c.ProviderID)
+	// Tools act in the conversation's workspace only.
+	ctx = context.WithValue(ctx, toolWorkspaceKey{}, c.WorkspaceID)
+	p, err := s.store.LLMProvider(ctx, c.WorkspaceID, *c.ProviderID)
 	if err != nil {
 		fail("This conversation's model was removed. Start a new conversation.")
 		return
 	}
 	model := toLLM(p)
-	mode := s.mode(ctx)
+	mode := s.mode(ctx, c.WorkspaceID)
 	tools := s.tools()
 	offered := make([]llm.Tool, 0, len(tools))
 	for _, t := range tools {

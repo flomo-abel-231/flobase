@@ -23,7 +23,7 @@ import (
 // offered for new projects. See provisioner/remote.go and relay.go.
 
 func (s *Server) regionRoutes(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/regions", s.auth(s.listRegions))
+	mux.Handle("GET /api/v1/regions", s.platformAdmin(s.listRegions))
 	mux.Handle("POST /api/v1/regions", s.owner(s.addRegion))
 	mux.Handle("PATCH /api/v1/regions/{id}", s.owner(s.updateRegion))
 	mux.Handle("DELETE /api/v1/regions/{id}", s.owner(s.deleteRegion))

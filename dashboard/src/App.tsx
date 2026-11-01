@@ -1,5 +1,15 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { api, getToken, refreshSession, setToken, signOut as endSession, type Me, type ServerConfig } from "./api";
+import {
+  api,
+  getToken,
+  getWorkspace,
+  refreshSession,
+  setToken,
+  setWorkspace,
+  signOut as endSession,
+  type Me,
+  type ServerConfig,
+} from "./api";
 import { Logo } from "./ui";
 import { AcceptInvite, Login } from "./pages/Login";
 import { Projects } from "./pages/Projects";
@@ -13,6 +23,7 @@ import { Automations } from "./pages/Automations";
 import { Team } from "./pages/Team";
 import { Account } from "./pages/Account";
 import { Regions } from "./pages/Regions";
+import { WorkspacePage } from "./pages/WorkspacePage";
 
 // Hash routes keep the dashboard servable as static files from any host.
 type Route =
@@ -25,6 +36,7 @@ type Route =
   | { page: "automations" }
   | { page: "team" }
   | { page: "regions" }
+  | { page: "workspace" }
   | { page: "account" }
   | { page: "invite"; token: string }
   | { page: "project"; ref: string; tab: string; section?: string };
@@ -42,6 +54,7 @@ function parseRoute(hash: string): Route {
   if (path === "/automations") return { page: "automations" };
   if (path === "/team") return { page: "team" };
   if (path === "/regions") return { page: "regions" };
+  if (path === "/workspace") return { page: "workspace" };
   if (path === "/account") return { page: "account" };
   const invite = path.match(/^\/invite\/([A-Za-z0-9]+)$/);
   if (invite) return { page: "invite", token: invite[1] };
@@ -54,6 +67,12 @@ export function navigate(path: string) {
 
 const icons: Record<string, ReactNode> = {
   projects: <path d="M3 5.5A1.5 1.5 0 0 1 4.5 4h3.6l1.5 2h5.9A1.5 1.5 0 0 1 17 7.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5z" />,
+  workspace: (
+    <>
+      <rect x="3" y="4" width="14" height="12" rx="1.5" />
+      <path d="M3 8h14M7 4v4" />
+    </>
+  ),
   regions: (
     <>
       <circle cx="10" cy="10" r="7" />
@@ -119,6 +138,7 @@ export function App() {
   // null = still checking; false = signed out.
   const [me, setMe] = useState<Me | false | null>(null);
   const [setupRequired, setSetupRequired] = useState(false);
+  const [signup, setSignup] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -135,34 +155,62 @@ export function App() {
   const load = async () => {
     try {
       if (getToken() || (await refreshSession())) {
-        setMe(await api.me());
+        let m = await api.me();
+        // Remember the workspace the server settled on, unless the one
+        // remembered is still valid.
+        if (!m.workspaces.some((w) => w.id === getWorkspace())) {
+          setWorkspace(m.workspace || (m.workspaces[0]?.id ?? ""));
+          if (m.workspace !== getWorkspace()) m = await api.me();
+        }
+        setMe(m);
         return;
       }
     } catch {
       setToken("");
     }
-    const status = await api.authStatus().catch(() => ({ setup_required: false }));
+    const status = await api.authStatus().catch(() => ({ setup_required: false, signup: false }));
     setSetupRequired(status.setup_required);
+    setSignup(status.signup);
     setMe(false);
   };
 
   useEffect(() => {
-    api.config().then(setConfig).catch(() => setConfig(null));
+    api
+      .config()
+      .then(setConfig)
+      .catch(() => setConfig(null));
     void load();
   }, []);
 
   const signOut = async () => {
     await endSession();
+    setWorkspace("");
     setMenuOpen(false);
     await load();
   };
 
   if (me === null) return null;
   if (route.page === "invite") return <AcceptInvite token={route.token} onSignedIn={() => void load()} />;
-  if (!me) return <Login setupRequired={setupRequired} onSignedIn={() => void load()} />;
+  if (!me) return <Login setupRequired={setupRequired} signup={signup} onSignedIn={() => void load()} />;
+
+  // Switching workspace re-reads who we are there and remounts every page,
+  // so nothing from the previous workspace stays on screen.
+  const switchWorkspace = async (id?: string) => {
+    if (id !== undefined) {
+      setWorkspace(id);
+      navigate("/");
+    }
+    await load();
+  };
+  const platformAdmin = me.role === "owner" || me.role === "admin";
+  const current = me.workspaces.find((w) => w.id === me.workspace);
 
   const section =
-    route.page === "project" || route.page === "new" ? "projects" : route.page === "assistant-settings" ? "assistant" : route.page;
+    route.page === "project" || route.page === "new"
+      ? "projects"
+      : route.page === "assistant-settings"
+        ? "assistant"
+        : route.page;
 
   const sidebar = (
     <nav aria-label="Main" className="flex h-full flex-col gap-6 px-3 py-4">
@@ -170,13 +218,35 @@ export function App() {
       <a href="#/" className="hidden px-1 lg:block">
         <Logo />
       </a>
+      <label className="flex flex-col gap-1 px-1">
+        <span className="label text-ink-muted">Workspace</span>
+        <select
+          value={me.workspace}
+          onChange={(e) => (e.target.value === "+" ? navigate("/workspace") : void switchWorkspace(e.target.value))}
+          className="h-8 rounded-sm border border-border-strong bg-surface-sunken px-2 text-[13px] font-medium text-ink"
+        >
+          {me.workspaces.length === 0 && <option value="">No workspace</option>}
+          {me.workspaces.map((w) => (
+            <option key={w.id} value={w.id}>
+              {w.name}
+            </option>
+          ))}
+          {me.user && <option value="+">+ New workspace…</option>}
+        </select>
+      </label>
       <div className="flex flex-col gap-0.5">
         <NavLink href="#/" icon="projects" label="Projects" active={section === "projects"} />
         <NavLink href="#/assistant" icon="assistant" label="Assistant" active={section === "assistant"} />
         <NavLink href="#/automations" icon="automations" label="Automations" active={section === "automations"} />
-        <NavLink href="#/regions" icon="regions" label="Regions" active={section === "regions"} />
-        <NavLink href="#/offsite" icon="offsite" label="Off-site backups" active={section === "offsite"} />
-        <NavLink href="#/team" icon="team" label="Team" active={section === "team"} />
+        <NavLink href="#/team" icon="team" label="Members" active={section === "team"} />
+        <NavLink href="#/workspace" icon="workspace" label="Workspace" active={section === "workspace"} />
+        {platformAdmin && (
+          <>
+            <span className="mt-4 px-2.5 pb-1 label text-ink-muted">Platform</span>
+            <NavLink href="#/regions" icon="regions" label="Regions" active={section === "regions"} />
+            <NavLink href="#/offsite" icon="offsite" label="Off-site backups" active={section === "offsite"} />
+          </>
+        )}
         <NavLink href="#/settings" icon="settings" label="Settings" active={section === "settings"} />
       </div>
       <div className="mt-auto flex flex-col gap-2">
@@ -237,21 +307,59 @@ export function App() {
         </div>
       )}
 
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">
-        {route.page === "projects" && <Projects />}
-        {route.page === "new" && <NewProject />}
-        {route.page === "offsite" && <OffsiteBackups />}
-        {route.page === "settings" && <Settings config={config} />}
-        {route.page === "assistant" && <Assistant chatId={route.chat} />}
-        {route.page === "assistant-settings" && <AssistantSettings />}
-        {route.page === "automations" && <Automations />}
-        {route.page === "team" && <Team me={me} />}
-        {route.page === "regions" && <Regions me={me} />}
-        {route.page === "account" && <Account me={me} onChanged={(user) => setMe({ ...me, user })} onSignOut={signOut} />}
-        {route.page === "project" && (
-          <ProjectDetail key={route.ref} projectRef={route.ref} tab={route.tab} section={route.section} />
+      <main key={me.workspace} className="mx-auto max-w-6xl px-4 py-6 sm:px-8 sm:py-8">
+        {!current && route.page !== "account" && <WorkspacePage me={me} onChanged={switchWorkspace} />}
+        {(current || route.page === "account") && (
+          <Pages
+            route={route}
+            me={me}
+            config={config}
+            platformAdmin={platformAdmin}
+            onMe={setMe}
+            onSignOut={signOut}
+            onWorkspace={switchWorkspace}
+          />
         )}
       </main>
     </div>
+  );
+}
+
+function Pages({
+  route,
+  me,
+  config,
+  platformAdmin,
+  onMe,
+  onSignOut,
+  onWorkspace,
+}: {
+  route: Route;
+  me: Me;
+  config: ServerConfig | null;
+  platformAdmin: boolean;
+  onMe: (me: Me) => void;
+  onSignOut: () => Promise<void>;
+  onWorkspace: (id?: string) => Promise<void>;
+}) {
+  const signOut = onSignOut;
+  const setMe = onMe;
+  return (
+    <>
+      {route.page === "projects" && <Projects />}
+      {route.page === "new" && <NewProject />}
+      {route.page === "offsite" && platformAdmin && <OffsiteBackups />}
+      {route.page === "settings" && <Settings config={config} platformAdmin={platformAdmin} />}
+      {route.page === "assistant" && <Assistant chatId={route.chat} />}
+      {route.page === "assistant-settings" && <AssistantSettings />}
+      {route.page === "automations" && <Automations />}
+      {route.page === "team" && <Team me={me} />}
+      {route.page === "regions" && platformAdmin && <Regions me={me} />}
+      {route.page === "workspace" && <WorkspacePage me={me} onChanged={onWorkspace} />}
+      {route.page === "account" && <Account me={me} onChanged={(user) => setMe({ ...me, user })} onSignOut={signOut} />}
+      {route.page === "project" && (
+        <ProjectDetail key={route.ref} projectRef={route.ref} tab={route.tab} section={route.section} />
+      )}
+    </>
   );
 }
