@@ -2,7 +2,7 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.9.2 — 2026-11-01
 
 - **Table editor: every schema, as in Supabase.** A schema picker lists the project's schemas with their table counts, and the editor opens on the first one that has tables, so apps that keep their tables outside `public` show up straight away. Views are listed too (read-only), and FloBase's own schemas (auth, storage, vault and the like) can be browsed but not edited. New tables go into the chosen schema. The row-level security warning appears only for `public`, the schema the REST API serves.
 - The assistant's `list_tables` tool takes a schema.
