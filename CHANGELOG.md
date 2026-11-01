@@ -2,6 +2,12 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Team accounts:** people sign in with email and password instead of sharing the API token. The first person creates the owner account (with the API token, so nobody else can claim a new public server), and the owner and admins invite others with a one-time link under **Team**, change their roles or remove them. **Account** changes your name and password and signs out everywhere.
+- Sessions work like Supabase Auth: a JWT access token valid for 1 hour, renewed with a refresh token that works once. The dashboard keeps the refresh token in an httpOnly cookie, never in browser storage. Signing out, removing someone and changing a password take effect at once, and 10 wrong passwords pause sign-in for that email for 15 minutes.
+- The API token keeps working with the owner's rights, for the `flobase` CLI, FloBase Desktop and automations. Existing installs ask for the owner account at the next sign-in.
+
 ## 0.5.1 — 2026-11-01
 
 - **Reset password** under a project's Configuration → Connect replaces a leaked database password with a new random one, for Postgres, MySQL and MongoDB projects. Every database user that had the old password gets the new one, the project's services restart with it on the same ports, and open connections are closed.

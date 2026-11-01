@@ -118,7 +118,7 @@ cat << EOF
 
   Dashboard     http://$host:$(sed -n 's/^FLOBASE_PORT=//p' .env)
   Project APIs  $(sed -n 's/^FLOBASE_GATEWAY_URL=//p' .env)
-  API token     $token   (sign in with this; it is also in $DIR/.env)
+  API token     $token   (create the owner account with this; it is also in $DIR/.env)
 
   Automatic updates are $([ "$auto" = true ] && echo on || echo off). Settings live in $DIR/.env.
   Put HTTPS in front before exposing FloBase to the internet:

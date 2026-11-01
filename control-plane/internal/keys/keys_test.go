@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAPIKeyIsVerifiableJWT(t *testing.T) {
@@ -41,5 +42,27 @@ func TestRefAndPasswordShape(t *testing.T) {
 	}
 	if p := Password(); len(p) != 32 || strings.Trim(p, secretAlphabet) != "" {
 		t.Fatalf("bad password %q", p)
+	}
+}
+
+func TestSignVerify(t *testing.T) {
+	tok := Sign("secret", map[string]any{"sub": "u1", "exp": time.Now().Add(time.Hour).Unix()})
+	claims, err := Verify("secret", tok)
+	if err != nil || claims["sub"] != "u1" {
+		t.Fatalf("Verify = %v, %v", claims, err)
+	}
+	if _, err := Verify("other", tok); err == nil {
+		t.Fatal("accepted a token signed with another secret")
+	}
+	expired := Sign("secret", map[string]any{"sub": "u1", "exp": time.Now().Add(-time.Second).Unix()})
+	if _, err := Verify("secret", expired); err == nil {
+		t.Fatal("accepted an expired token")
+	}
+	if _, err := Verify("secret", tok[:len(tok)-2]+"xx"); err == nil {
+		t.Fatal("accepted a tampered token")
+	}
+	none := "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0." + strings.Split(tok, ".")[1] + "."
+	if _, err := Verify("secret", none); err == nil {
+		t.Fatal("accepted alg none")
 	}
 }
