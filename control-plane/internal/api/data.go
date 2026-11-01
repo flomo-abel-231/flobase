@@ -499,14 +499,41 @@ func (s *Server) tableRows(w http.ResponseWriter, r *http.Request) {
 				order = []string{"1"}
 			}
 		}
-		var total int64
+		// Sorting by a column the person clicked; its name must be one of
+		// the table's, so it comes from the catalog.
+		if sort := r.URL.Query().Get("sort"); sort != "" {
+			for _, c := range cols {
+				if c.Name == sort {
+					dir := "asc nulls last"
+					if r.URL.Query().Get("dir") == "desc" {
+						dir = "desc nulls last"
+					}
+					order = append([]string{pgx.Identifier{c.Name}.Sanitize() + " " + dir}, order...)
+				}
+			}
+		}
+		// Search matches the text of any column, like DataTables' search box.
+		where, args := "", []any{limit, max(offset, 0)}
+		if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
+			like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q) + "%"
+			where = " where t0::text ilike $3"
+			args = append(args, like)
+		}
+		var total, filtered int64
 		if err := conn.QueryRow(r.Context(), "select count(*) from "+ident).Scan(&total); err != nil {
 			dbError(w, err)
 			return
 		}
+		filtered = total
+		if where != "" {
+			if err := conn.QueryRow(r.Context(), "select count(*) from "+ident+" t0"+strings.Replace(where, "$3", "$1", 1), args[2]).Scan(&filtered); err != nil {
+				dbError(w, err)
+				return
+			}
+		}
 		// to_jsonb gives every Postgres type a JSON form the browser can show.
-		rows, err := conn.Query(r.Context(), "select to_jsonb(t) from (select * from "+ident+
-			" order by "+strings.Join(order, ", ")+" limit $1 offset $2) t", limit, max(offset, 0))
+		rows, err := conn.Query(r.Context(), "select to_jsonb(t) from (select t0.* from "+ident+" t0"+where+
+			" order by "+strings.Join(order, ", ")+" limit $1 offset $2) t", args...)
 		if err != nil {
 			dbError(w, err)
 			return
@@ -519,7 +546,7 @@ func (s *Server) tableRows(w http.ResponseWriter, r *http.Request) {
 		var rls bool
 		_ = conn.QueryRow(r.Context(), "select relrowsecurity from pg_class where oid = $1::regclass", ident).Scan(&rls)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"columns": cols, "rows": data, "total": total, "rls": rls,
+			"columns": cols, "rows": data, "total": total, "filtered": filtered, "rls": rls,
 			"view": rel.view, "read_only": rel.view || rel.protected,
 		})
 	})

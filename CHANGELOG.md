@@ -2,6 +2,10 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Table editor grid in the style of DataTables:** choose 10, 25, 50 or 100 entries per page, search across every column, click a column header to sort (ascending, descending, off), and move between numbered pages, with "Showing 1 to 25 of 1,234 entries (filtered from N total)" below. Rows are striped and highlight on hover, the header stays in view, and **Export CSV** downloads the rows on the page. Searching, sorting and paging run in the database, so big tables stay fast.
+
 ## 0.9.2 — 2026-11-01
 
 - **Table editor: every schema, as in Supabase.** A schema picker lists the project's schemas with their table counts, and the editor opens on the first one that has tables, so apps that keep their tables outside `public` show up straight away. Views are listed too (read-only), and FloBase's own schemas (auth, storage, vault and the like) can be browsed but not edited. New tables go into the chosen schema. The row-level security warning appears only for `public`, the schema the REST API serves.

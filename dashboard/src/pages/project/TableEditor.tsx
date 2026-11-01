@@ -2,7 +2,37 @@ import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } 
 import { api, type Column, type NewColumn, type Project, type SchemaInfo, type TableInfo, type TableRows } from "../../api";
 import { Button, Card, Field, Input, Notice } from "../../ui";
 
-const PAGE = 100;
+// The grid follows DataTables: entries per page, a search box across all
+// columns, sortable headers, striped rows and numbered pages. Searching,
+// sorting and paging run in the database, so large tables stay fast.
+const pageSizes = [10, 25, 50, 100];
+
+function storedPageSize(): number {
+  try {
+    const n = Number(localStorage.getItem("flobase.pageSize"));
+    return pageSizes.includes(n) ? n : 25;
+  } catch {
+    return 25;
+  }
+}
+
+// pageList is the numbered pages to show: first, last, and those around
+// the current one, with gaps as null.
+function pageList(current: number, count: number): (number | null)[] {
+  const pages = new Set([0, count - 1, current - 1, current, current + 1].filter((p) => p >= 0 && p < count));
+  const sorted = [...pages].sort((a, b) => a - b);
+  const out: (number | null)[] = [];
+  sorted.forEach((p, i) => {
+    if (i > 0 && p - sorted[i - 1] > 1) out.push(null);
+    out.push(p);
+  });
+  return out;
+}
+
+function csvCell(v: unknown): string {
+  const t = display(v);
+  return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
 
 const typeOptions: { value: string; label: string }[] = [
   { value: "text", label: "text" },
@@ -182,7 +212,21 @@ export function TableEditor({ project }: { project: Project }) {
 
 function TableView({ project, schema, table, onChanged }: { project: Project; schema: string; table: string; onChanged: () => void }) {
   const [data, setData] = useState<TableRows | null>(null);
-  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(storedPageSize);
+  const [searchText, setSearchText] = useState("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<{ col: string; dir: "asc" | "desc" } | null>(null);
+  const offset = page * pageSize;
+
+  // Search after a short pause in typing, from the first page.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchText.trim());
+      setPage(0);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchText]);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<{ row: number; col: string; value: string } | null>(null);
   const [adding, setAdding] = useState<Record<string, string> | null>(null);
@@ -190,12 +234,12 @@ function TableView({ project, schema, table, onChanged }: { project: Project; sc
 
   const load = useCallback(async () => {
     try {
-      setData(await api.rows(project.ref, schema, table, offset, PAGE));
+      setData(await api.rows(project.ref, schema, table, { offset, limit: pageSize, search, sort: sort?.col, dir: sort?.dir }));
       setError("");
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [project.ref, schema, table, offset]);
+  }, [project.ref, schema, table, offset, pageSize, search, sort]);
 
   useEffect(() => {
     load();
@@ -206,6 +250,19 @@ function TableView({ project, schema, table, onChanged }: { project: Project; sc
   // Rows are editable when the table has a primary key and is not read-only.
   const pk = data.read_only ? [] : data.columns.filter((c) => c.primary);
   const match = (row: Record<string, unknown>) => Object.fromEntries(pk.map((c) => [c.name, row[c.name]]));
+  const pageCount = Math.max(1, Math.ceil(data.filtered / pageSize));
+
+  // Export CSV downloads the rows on this page, as shown.
+  const exportCSV = () => {
+    const lines = [data.columns.map((c) => csvCell(c.name)).join(",")];
+    for (const row of data.rows) lines.push(data.columns.map((c) => csvCell(row[c.name])).join(","));
+    const url = URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${schema}.${table}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const act = async (fn: () => Promise<unknown>) => {
     try {
@@ -308,23 +365,85 @@ function TableView({ project, schema, table, onChanged }: { project: Project; sc
         </Card>
       )}
 
-      <div className="max-h-[65vh] overflow-auto rounded-md border border-border bg-surface-raised">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <label className="body-sm flex items-center gap-2 text-ink-muted">
+          Show
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              setPageSize(n);
+              setPage(0);
+              try {
+                localStorage.setItem("flobase.pageSize", String(n));
+              } catch {
+                // Not remembered; fine.
+              }
+            }}
+            className="h-8 rounded-lg border border-border bg-surface-raised px-2 text-[13px] text-ink"
+          >
+            {pageSizes.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          entries
+        </label>
+        <div className="flex items-center gap-2">
+          <label className="body-sm flex items-center gap-2 text-ink-muted">
+            Search
+            <Input
+              type="search"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Any column…"
+              aria-label="Search rows"
+            />
+          </label>
+          <Button onClick={exportCSV} disabled={data.rows.length === 0} title="Download the rows on this page as CSV">
+            Export CSV
+          </Button>
+        </div>
+      </div>
+
+      <div className="max-h-[65vh] overflow-auto rounded-xl border border-border bg-surface-raised shadow-sm">
         <table className="w-full border-collapse text-left">
-          <thead className="sticky top-0 z-10 bg-surface-sunken">
+          <thead className="sticky top-0 z-10 bg-surface-panel">
             <tr>
-              {data.columns.map((c) => (
-                <th key={c.name} className="whitespace-nowrap border-b border-border px-3 py-2">
-                  <span className="label text-ink">{c.name}</span>
-                  <span className="code ml-2 text-ink-muted">{c.type}</span>
-                  {c.primary && <span className="label ml-2 text-ink-muted">PK</span>}
-                </th>
-              ))}
+              {data.columns.map((c) => {
+                const dir = sort?.col === c.name ? sort.dir : null;
+                return (
+                  <th
+                    key={c.name}
+                    aria-sort={dir === "asc" ? "ascending" : dir === "desc" ? "descending" : "none"}
+                    className="whitespace-nowrap border-b border-border p-0"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSort(dir === null ? { col: c.name, dir: "asc" } : dir === "asc" ? { col: c.name, dir: "desc" } : null);
+                        setPage(0);
+                      }}
+                      title={`Sort by ${c.name}`}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-sunken"
+                    >
+                      <span className="label text-ink">{c.name}</span>
+                      <span className="code text-ink-muted">{c.type}</span>
+                      {c.primary && <span className="label text-ink-muted">PK</span>}
+                      <span className={`ml-auto text-[10px] leading-none ${dir ? "text-brand" : "text-ink-muted/50"}`} aria-hidden>
+                        {dir === "asc" ? "▲" : dir === "desc" ? "▼" : "▲▼"}
+                      </span>
+                    </button>
+                  </th>
+                );
+              })}
               {pk.length > 0 && <th className="border-b border-border" aria-label="Actions" />}
             </tr>
           </thead>
           <tbody>
             {data.rows.map((row, i) => (
-              <tr key={i} className="border-b border-border last:border-0">
+              <tr key={i} className="border-b border-border last:border-0 odd:bg-surface even:bg-surface-raised hover:bg-brand-subtle/40">
                 {data.columns.map((c) => {
                   const isEditing = editing?.row === i && editing.col === c.name;
                   const v = row[c.name];
@@ -380,24 +499,48 @@ function TableView({ project, schema, table, onChanged }: { project: Project; sc
             ))}
           </tbody>
         </table>
-        {data.rows.length === 0 && <p className="body-sm px-3 py-6 text-center text-ink-muted">No rows yet.</p>}
+        {data.rows.length === 0 && (
+          <p className="body-sm px-3 py-6 text-center text-ink-muted">{search ? "No matching rows." : "No rows yet."}</p>
+        )}
       </div>
 
-      {data.total > PAGE && (
-        <div className="flex items-center justify-between gap-3">
-          <span className="body-sm text-ink-muted">
-            Rows {offset + 1}–{Math.min(offset + PAGE, data.total)} of {data.total.toLocaleString()}
-          </span>
-          <div className="flex gap-2">
-            <Button onClick={() => setOffset(Math.max(0, offset - PAGE))} disabled={offset === 0}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="body-sm text-ink-muted">
+          {data.filtered === 0
+            ? "Showing 0 entries"
+            : `Showing ${(offset + 1).toLocaleString()} to ${Math.min(offset + pageSize, data.filtered).toLocaleString()} of ${data.filtered.toLocaleString()} entries`}
+          {search && data.filtered !== data.total ? ` (filtered from ${data.total.toLocaleString()} total)` : ""}
+        </span>
+        {pageCount > 1 && (
+          <nav aria-label="Pages" className="flex items-center gap-1">
+            <Button onClick={() => setPage(page - 1)} disabled={page === 0}>
               Previous
             </Button>
-            <Button onClick={() => setOffset(offset + PAGE)} disabled={offset + PAGE >= data.total}>
+            {pageList(page, pageCount).map((p, i) =>
+              p === null ? (
+                <span key={`gap${i}`} className="px-1 text-ink-muted" aria-hidden>
+                  …
+                </span>
+              ) : (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPage(p)}
+                  aria-current={p === page ? "page" : undefined}
+                  className={`h-8 min-w-8 rounded-lg px-2 text-[13px] font-medium transition ${
+                    p === page ? "bg-brand text-on-brand" : "text-ink hover:bg-surface-sunken"
+                  }`}
+                >
+                  {p + 1}
+                </button>
+              ),
+            )}
+            <Button onClick={() => setPage(page + 1)} disabled={page >= pageCount - 1}>
               Next
             </Button>
-          </div>
-        </div>
-      )}
+          </nav>
+        )}
+      </div>
     </div>
   );
 }
