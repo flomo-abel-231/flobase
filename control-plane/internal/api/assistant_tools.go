@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -153,10 +154,21 @@ func (s *Server) tools() []assistantTool {
 			},
 		},
 		{
-			Tool:  llm.Tool{Name: "list_tables", Description: "List a Postgres project's tables in the public schema, with row estimates and whether row-level security is on.", Properties: props("ref", refProp), Required: []string{"ref"}},
+			Tool: llm.Tool{Name: "list_tables", Description: "List a Postgres project's tables and views in one schema (public unless given), with row estimates and whether row-level security is on.",
+				Properties: props("ref", refProp, "schema", strProp("A schema name; default public.")), Required: []string{"ref"}},
 			risk:  fixed(riskRead),
 			title: onRef("List tables in"),
-			run:   get(projectPath("/tables")),
+			run: get(func(in toolInput) (string, error) {
+				r, err := ref(in)
+				if err != nil {
+					return "", err
+				}
+				p := "/api/v1/projects/" + r + "/tables"
+				if sc := in.str("schema"); sc != "" {
+					p += "?schema=" + url.QueryEscape(sc)
+				}
+				return p, nil
+			}),
 		},
 		{
 			Tool:  llm.Tool{Name: "list_auth_users", Description: "List a Postgres project's auth users (Supabase Auth).", Properties: props("ref", refProp), Required: []string{"ref"}},

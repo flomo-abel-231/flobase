@@ -111,8 +111,16 @@ export interface QueryResponse {
   duration_ms: number;
 }
 
+export interface SchemaInfo {
+  name: string;
+  tables: number;
+  // Owned by FloBase's services: read-only in the table editor.
+  protected: boolean;
+}
+
 export interface TableInfo {
   name: string;
+  kind: "table" | "view";
   rls: boolean;
   row_estimate: number;
 }
@@ -130,6 +138,9 @@ export interface TableRows {
   rows: Record<string, unknown>[];
   total: number;
   rls: boolean;
+  view: boolean;
+  // Views and FloBase's own schemas can be browsed but not edited here.
+  read_only: boolean;
 }
 
 export interface AuthUser {
@@ -589,17 +600,24 @@ export const api = {
   runAutomation: (id: string) => request<Chat>("POST", `/automations/${id}/run`),
   deleteAutomation: (id: string) => request<void>("DELETE", `/automations/${id}`),
   sql: (ref: string, query: string) => request<QueryResponse>("POST", `/projects/${ref}/sql`, { query }),
-  tables: (ref: string) => request<TableInfo[]>("GET", `/projects/${ref}/tables`),
-  createTable: (ref: string, input: { name: string; rls: boolean; columns: NewColumn[] }) =>
-    request<{ sql: string }>("POST", `/projects/${ref}/tables`, input),
-  rows: (ref: string, table: string, offset: number, limit: number) =>
-    request<TableRows>("GET", `/projects/${ref}/tables/${encodeURIComponent(table)}/rows?offset=${offset}&limit=${limit}`),
-  insertRow: (ref: string, table: string, values: Record<string, unknown>) =>
-    request<void>("POST", `/projects/${ref}/tables/${encodeURIComponent(table)}/rows`, { values }),
-  updateRow: (ref: string, table: string, match: Record<string, unknown>, values: Record<string, unknown>) =>
-    request<void>("PATCH", `/projects/${ref}/tables/${encodeURIComponent(table)}/rows`, { match, values }),
-  deleteRow: (ref: string, table: string, match: Record<string, unknown>) =>
-    request<void>("DELETE", `/projects/${ref}/tables/${encodeURIComponent(table)}/rows`, { match }),
+  schemas: (ref: string) => request<SchemaInfo[]>("GET", `/projects/${ref}/schemas`),
+  tables: (ref: string, schema: string) => request<TableInfo[]>("GET", `/projects/${ref}/tables?schema=${encodeURIComponent(schema)}`),
+  createTable: (ref: string, schema: string, input: { name: string; rls: boolean; columns: NewColumn[] }) =>
+    request<{ sql: string }>("POST", `/projects/${ref}/tables?schema=${encodeURIComponent(schema)}`, input),
+  rows: (ref: string, schema: string, table: string, offset: number, limit: number) =>
+    request<TableRows>(
+      "GET",
+      `/projects/${ref}/tables/${encodeURIComponent(table)}/rows?schema=${encodeURIComponent(schema)}&offset=${offset}&limit=${limit}`,
+    ),
+  insertRow: (ref: string, schema: string, table: string, values: Record<string, unknown>) =>
+    request<void>("POST", `/projects/${ref}/tables/${encodeURIComponent(table)}/rows?schema=${encodeURIComponent(schema)}`, { values }),
+  updateRow: (ref: string, schema: string, table: string, match: Record<string, unknown>, values: Record<string, unknown>) =>
+    request<void>("PATCH", `/projects/${ref}/tables/${encodeURIComponent(table)}/rows?schema=${encodeURIComponent(schema)}`, {
+      match,
+      values,
+    }),
+  deleteRow: (ref: string, schema: string, table: string, match: Record<string, unknown>) =>
+    request<void>("DELETE", `/projects/${ref}/tables/${encodeURIComponent(table)}/rows?schema=${encodeURIComponent(schema)}`, { match }),
   users: (ref: string) => request<AuthUser[]>("GET", `/projects/${ref}/users`),
   createUser: (ref: string, email: string, password: string) =>
     request<unknown>("POST", `/projects/${ref}/users`, { email, password }),

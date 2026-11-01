@@ -2,6 +2,11 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Table editor: every schema, as in Supabase.** A schema picker lists the project's schemas with their table counts, and the editor opens on the first one that has tables, so apps that keep their tables outside `public` show up straight away. Views are listed too (read-only), and FloBase's own schemas (auth, storage, vault and the like) can be browsed but not edited. New tables go into the chosen schema. The row-level security warning appears only for `public`, the schema the REST API serves.
+- The assistant's `list_tables` tool takes a schema.
+
 ## 0.9.1 — 2026-11-01
 
 - **Network restrictions:** allowing the server's own IP address now also lets in apps running on that server (Coolify or Docker apps), which connect from Docker's internal networks rather than from the server's address. The Network page shows the server's address with an **Add this server** button, and says whether apps on the server can connect. Without the server's address on the list, apps on it stay blocked like everyone else.
