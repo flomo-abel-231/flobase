@@ -2,7 +2,7 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.6.0 — 2026-11-01
 
 - **Regions on your own servers:** the owner adds a Docker server per location under **Regions** (reached over SSH, or TLS with client certificates), with a name, location label, public host for database connections and a cost multiplier, then opens or closes it. Customers pick the location when creating a project, with prices for that region (estimated cost × multiplier × `FLOBASE_MARKUP`). Every project operation — create, delete, backups, restores, password reset, logs, SQL editor, table editor, auth users — goes to the project's own server. The gateway and dashboard reach remote projects through a small relay FloBase starts on each server, which only lets in FloBase's own certificate. The AWS, GCP and Azure placeholder regions are gone. `scripts/region-server.sh` prepares a fresh Ubuntu or Debian server in one command.
 - **Team accounts:** people sign in with email and password instead of sharing the API token. The first person creates the owner account (with the API token, so nobody else can claim a new public server), and the owner and admins invite others with a one-time link under **Team**, change their roles or remove them. **Account** changes your name and password and signs out everywhere.
