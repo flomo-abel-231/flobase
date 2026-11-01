@@ -27,9 +27,28 @@ const (
 
 func (m *Manager) runtimeDir() string { return filepath.Join(m.Dir, "runtime") }
 
+// guiPath adds the folders Docker Desktop, OrbStack and Homebrew install
+// into to PATH. Apps opened from Finder get only /usr/bin:/bin:/usr/sbin:
+// /sbin, so without this FloBase Desktop cannot see an installed Docker.
+func guiPath() {
+	home, _ := os.UserHomeDir()
+	path := os.Getenv("PATH")
+	for _, dir := range []string{
+		"/usr/local/bin", "/opt/homebrew/bin",
+		filepath.Join(home, ".docker", "bin"), filepath.Join(home, ".orbstack", "bin"),
+		"/Applications/Docker.app/Contents/Resources/bin",
+	} {
+		if _, err := os.Stat(dir); err == nil && !strings.Contains(":"+path+":", ":"+dir+":") {
+			path += ":" + dir
+		}
+	}
+	os.Setenv("PATH", path)
+}
+
 // useOwnEngine points docker commands at FloBase's own engine once it has
 // been installed.
 func (m *Manager) useOwnEngine() {
+	guiPath()
 	rt := m.runtimeDir()
 	if _, err := os.Stat(filepath.Join(rt, "bin", "colima")); err != nil {
 		return

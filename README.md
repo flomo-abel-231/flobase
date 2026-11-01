@@ -45,7 +45,7 @@ The [self-hosting guide](docs/self-hosting.md) covers requirements, every settin
 ```js
 import { createClient } from "@supabase/supabase-js";
 
-const db = createClient("http://localhost:8000/project/<ref>", "<anon key>");
+const db = createClient("http://localhost:28471/project/<ref>", "<anon key>");
 await db.auth.signUp({ email: "ada@example.com", password: "correct-horse-42" });
 const { data } = await db.from("todos").select("*");
 ```
@@ -82,7 +82,7 @@ MongoDB itself is under the SSPL, which would force the whole service's source o
 
 ## Develop
 
-Build and run from this checkout (the dashboard on http://localhost:8080, project APIs on http://localhost:8000):
+Build and run from this checkout (the dashboard on http://localhost:28470, project APIs on http://localhost:28471):
 
 ```bash
 make up
@@ -92,7 +92,7 @@ Or run the pieces on the host:
 
 ```bash
 make dev-db        # platform Postgres on :5433
-make dev-api       # API on :8080 (cloud mode, token dev-token-change-me)
+make dev-api       # API on :28470 (cloud mode, token dev-token-change-me)
 make dev-dashboard # dashboard on :5173
 make test
 ```
@@ -129,7 +129,7 @@ Off-site copies outlive the project. If the machine is lost, start FloBase on a 
 ## Security notes
 
 - Auth confirms email addresses automatically because no email server is configured yet. Set one up before real users sign up.
-- The control plane mounts the Docker socket, which is root on the host. Keep the API token secret and do not expose port 8080 to the internet without TLS in front.
+- The control plane mounts the Docker socket, which is root on the host. Keep the API token secret and do not expose the dashboard port (28470) to the internet without TLS in front.
 - Database passwords and JWT secrets are stored in the platform database unencrypted. Encrypt them (KMS or OpenBao) before running a public service.
 
 ## Releasing

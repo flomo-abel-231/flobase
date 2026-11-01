@@ -7,6 +7,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
-    proxy: { "/api": process.env.FLOBASE_API_URL ?? "http://localhost:8080" },
+    proxy: { "/api": process.env.FLOBASE_API_URL ?? "http://localhost:28470" },
   },
 });
