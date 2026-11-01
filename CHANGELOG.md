@@ -2,7 +2,7 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.9.0 — 2026-11-01
 
 - **Network restrictions:** each project can limit which IP addresses (IPv4 or IPv6, single addresses or ranges) reach its database and pooler, under **Configuration → Network**, with an **Add my IP** button. Only that project's ports are affected; the server, the dashboard and the project's APIs are untouched. Works on region servers too, and the rules survive reboots.
 
