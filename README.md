@@ -212,6 +212,8 @@ Maintainers set the GitHub Sponsors account, the Stripe Payment Links and the co
 
 ## Security notes
 
+- Turn on the server firewall: `curl -fsSL https://raw.githubusercontent.com/flomo-abel-231/flobase/main/scripts/firewall.sh | sudo bash`. It keeps SSH, HTTP/HTTPS and the project database ports open and refuses everything else, including Docker-published ports that would otherwise skip ufw. `--db-from <CIDR>` limits who can reach the databases, `--allow-port` keeps another port open. It turns itself off after 5 minutes unless you confirm it still lets you in.
+
 - Auth confirms email addresses automatically because no email server is configured yet, for project users and FloBase accounts alike. Set one up before opening sign-up widely.
 - The control plane mounts the Docker socket, which is root on the host. Keep the API token secret and do not expose the dashboard port (28470) to the internet without TLS in front.
 - Database passwords and JWT secrets are stored in the platform database unencrypted. Encrypt them (KMS or OpenBao) before running a public service.

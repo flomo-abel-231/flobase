@@ -2,6 +2,10 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Server firewall:** `scripts/firewall.sh` turns on ufw with only SSH, HTTP/HTTPS and the project database ports open, and applies the same allowlist to Docker-published ports, which otherwise skip ufw. `--db-from` limits database access to given addresses, `--allow-port` keeps more ports open, and a 5-minute safety timer turns it off again unless confirmed.
+
 ## 0.8.0 — 2026-11-01
 
 - **FloBase is self-hosted software, funded by donations.** There are no public cloud plans: self-hosted is the supported mode, and cloud mode stays in the code, not offered.
