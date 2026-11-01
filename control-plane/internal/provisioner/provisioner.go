@@ -1,7 +1,7 @@
 // Package provisioner turns a project record into a running database and
 // its services. The Docker driver serves self-hosting and the local dev
-// region; a Kubernetes driver (Project custom resource + operator) will
-// serve cloud regions behind the same interface.
+// region, and each cloud region is a Docker host of its own (a region
+// server) driven remotely; Router sends each call to the project's host.
 package provisioner
 
 import (
@@ -13,7 +13,9 @@ import (
 
 // Spec is everything a driver needs to create one project.
 type Spec struct {
-	Ref       string
+	Ref string
+	// Region picks the Docker host (see Router); empty = the local one.
+	Region    string
 	Engine    string
 	Plan      catalog.Plan
 	User      string
@@ -66,7 +68,8 @@ type Provisioner interface {
 	Delete(ctx context.Context, ref string) error
 	// Addr is where the control plane reaches one of a project's services:
 	// the service's name on the project network when the control plane is
-	// attached to it, else the published host port.
+	// attached to it, a local forward through the relay on a region server,
+	// else the published host port.
 	Addr(ref, service string, containerPort, publishedPort int) (string, int)
 	// SetPassword gives the database users that have the project's
 	// password a new one (s.Password), logging in with old.

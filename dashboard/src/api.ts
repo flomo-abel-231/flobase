@@ -28,10 +28,41 @@ export interface Plan {
 export interface Region {
   id: string;
   name: string;
-  provider: "docker" | "aws" | "gcp" | "azure";
+  provider: "docker";
   location: string;
   status: "open" | "full" | "closed";
   price_multiplier: number;
+  // Monthly price of each plan in this region (cloud mode).
+  prices?: Record<string, number>;
+}
+
+// A region in the Regions page: the local one, or a region server.
+export interface RegionDetail extends Region {
+  server?: {
+    transport: "ssh" | "tls";
+    endpoint: string;
+    public_host: string;
+    relay_port: number;
+    ssh_host_key_fingerprint?: string;
+    created_at: string;
+  };
+  projects: number;
+}
+
+export interface RegionInput {
+  id: string;
+  name: string;
+  location: string;
+  price_multiplier: number;
+  transport: "ssh" | "tls";
+  endpoint: string;
+  ssh_key: string;
+  ssh_host_key: string;
+  tls_ca: string;
+  tls_cert: string;
+  tls_key: string;
+  public_host: string;
+  relay_port: number;
 }
 
 export interface Catalog {
@@ -456,6 +487,12 @@ export const api = {
   resetPassword: (ref: string) => request<Project>("POST", `/projects/${ref}/password`),
   deleteCheck: (ref: string) => request<DeleteCheck>("GET", `/projects/${ref}/delete-check`),
   backupToCloud: (ref: string) => request<{ bucket: string; backup: string; finished: string }>("POST", `/projects/${ref}/backups/offsite`),
+  regions: () => request<RegionDetail[]>("GET", "/regions"),
+  addRegion: (input: RegionInput) => request<RegionDetail>("POST", "/regions", input),
+  updateRegion: (id: string, patch: Partial<Pick<Region, "name" | "location" | "status" | "price_multiplier">>) =>
+    request<Region>("PATCH", `/regions/${id}`, patch),
+  deleteRegion: (id: string) => request<void>("DELETE", `/regions/${id}`),
+  checkRegion: (id: string) => request<{ status: string }>("POST", `/regions/${id}/check`),
   storages: () => request<{ locations: StorageLocation[]; env_managed: boolean }>("GET", "/storages"),
   testStorage: (input: StorageInput) => request<{ result: string }>("POST", "/storages/test", input),
   createStorage: (input: StorageInput) => request<{ id: string }>("POST", "/storages", input),
@@ -518,13 +555,6 @@ export const engineLabel: Record<EngineId, string> = {
   postgres: "Postgres",
   mysql: "MySQL",
   mongodb: "MongoDB-compatible",
-};
-
-export const providerLabel: Record<Region["provider"], string> = {
-  docker: "Docker",
-  aws: "AWS",
-  gcp: "GCP",
-  azure: "Azure",
 };
 
 export function formatPrice(usd: number): string {

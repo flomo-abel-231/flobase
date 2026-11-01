@@ -47,6 +47,9 @@ type Server struct {
 	prov  provisioner.Provisioner
 	log   *slog.Logger
 	jobs  backupJobs
+	// router sends each project's calls to its region's server; nil when
+	// the provisioner is a single driver (tests).
+	router *provisioner.Router
 	// updater is nil when the provisioner cannot start the updater.
 	updater Updater
 	updates updateState
@@ -59,6 +62,9 @@ func New(cfg Config, st *store.Store, prov provisioner.Provisioner, log *slog.Lo
 	s := &Server{cfg: cfg, store: st, prov: prov, log: log, jobs: backupJobs{running: map[string]bool{}, sources: map[string]int{}}}
 	if u, ok := prov.(Updater); ok {
 		s.updater = u
+	}
+	if rt, ok := prov.(*provisioner.Router); ok {
+		s.router = rt
 	}
 	return s
 }
@@ -81,6 +87,7 @@ func (s *Server) Routes() http.Handler {
 	s.updateRoutes(mux)
 	s.assistantRoutes(mux)
 	s.accountRoutes(mux)
+	s.regionRoutes(mux)
 	return mux
 }
 
@@ -94,17 +101,20 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) billing() bool { return s.cfg.Mode == "cloud" }
 
-// providers lists which regions this mode can show.
-func (s *Server) providers() []string {
-	if s.cfg.Mode == "cloud" {
-		return []string{"docker", "aws", "gcp", "azure"}
-	}
-	return []string{"docker"}
-}
+// providers lists which regions this mode can show. Every region is a
+// Docker host: the local one or a region server.
+func (s *Server) providers() []string { return []string{"docker"} }
 
 type planView struct {
 	catalog.Plan
 	Markup float64 `json:"markup,omitempty"`
+}
+
+// regionOffer is a region as the new-project form shows it, with each
+// plan's price there.
+type regionOffer struct {
+	catalog.Region
+	Prices map[string]float64 `json:"prices,omitempty"`
 }
 
 func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
@@ -117,8 +127,9 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 	for _, p := range catalog.Plans {
 		v := planView{Plan: p}
 		if s.billing() {
-			if p.EstCost > 0 && p.Price > 0 {
-				v.Markup = round2(p.Price / p.EstCost)
+			v.Price = p.PriceIn(1, s.cfg.Markup)
+			if p.EstCost > 0 && v.Price > 0 {
+				v.Markup = round2(v.Price / p.EstCost)
 			}
 		} else {
 			// Self-hosted has no billing: sizes only.
@@ -126,8 +137,19 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 		}
 		plans = append(plans, v)
 	}
+	offers := make([]regionOffer, 0, len(regions))
+	for _, r := range regions {
+		o := regionOffer{Region: r}
+		if s.billing() {
+			o.Prices = map[string]float64{}
+			for _, p := range catalog.Plans {
+				o.Prices[p.ID] = p.PriceIn(r.PriceMultiplier, s.cfg.Markup)
+			}
+		}
+		offers = append(offers, o)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"engines": catalog.Engines, "plans": plans, "regions": regions,
+		"engines": catalog.Engines, "plans": plans, "regions": offers,
 		"billing": s.billing(), "target_markup": s.cfg.Markup,
 	})
 }
@@ -247,8 +269,12 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	if region.Status != "open" || region.Provider != "docker" {
-		writeError(w, http.StatusConflict, region.Name+" is not open for new projects yet.")
+	if region.Status != "open" {
+		writeError(w, http.StatusConflict, region.Name+" is not open for new projects.")
+		return
+	}
+	if _, err := s.driver(region.ID); err != nil {
+		writeError(w, http.StatusConflict, region.Name+" has no server connected. Check it under Regions.")
 		return
 	}
 
@@ -280,7 +306,7 @@ func (s *Server) provision(p store.Project, plan catalog.Plan, restore *provisio
 	defer cancel()
 	start := time.Now()
 	ep, err := s.prov.Create(ctx, provisioner.Spec{
-		Ref: p.Ref, Engine: p.Engine, Plan: plan, User: p.DBUser, Password: p.DBPassword, Database: p.DBName,
+		Ref: p.Ref, Region: p.Region, Engine: p.Engine, Plan: plan, User: p.DBUser, Password: p.DBPassword, Database: p.DBName,
 		JWTSecret: p.JWTSecret, AuthURL: s.apiURL(p.Ref) + "/auth/v1", Restore: restore,
 	})
 	if err != nil {

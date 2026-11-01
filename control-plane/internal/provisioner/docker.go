@@ -24,6 +24,10 @@ type Docker struct {
 	attach     []string // containers joined to every project network (control plane, gateway)
 	offsiteMu  sync.RWMutex
 	offsite    *Offsite // nil = backups stay on this machine only; see SetOffsite
+	// relay is set for a region server: project services are reached
+	// through it instead of by joining their networks (see relay.go).
+	relay   *Relay
+	hostKey func() string
 }
 
 func NewDocker(socket, publicHost string, attach []string, offsite *Offsite) *Docker {
@@ -211,6 +215,13 @@ func (d *Docker) Attach(ctx context.Context, ref string) error {
 }
 
 func (d *Docker) Addr(ref, service string, containerPort, publishedPort int) (string, int) {
+	if d.relay != nil {
+		host, port, err := d.relay.Forward("flobase-" + ref + "-" + service + ":" + strconv.Itoa(containerPort))
+		if err != nil {
+			return "127.0.0.1", 0
+		}
+		return host, port
+	}
 	if len(d.attach) > 0 {
 		return "flobase-" + ref + "-" + service, containerPort
 	}
