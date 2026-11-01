@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, formatPrice, providerLabel, type Catalog, type EngineId } from "../api";
+import { api, formatPrice, type Catalog, type EngineId } from "../api";
 import { Button, Card, Field, Input, Notice } from "../ui";
 import { navigate } from "../App";
 
@@ -57,7 +57,17 @@ export function NewProject() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.catalog().then(setCatalog).catch((e) => setError(e.message));
+    api
+      .catalog()
+      .then((c) => {
+        setCatalog(c);
+        // Start on an open region; local may be closed in the cloud.
+        if (!c.regions.some((r) => r.id === "local" && r.status === "open")) {
+          const open = c.regions.find((r) => r.status === "open");
+          if (open) setRegion(open.id);
+        }
+      })
+      .catch((e) => setError(e.message));
   }, []);
 
   const submit = async (e: FormEvent) => {
@@ -74,6 +84,9 @@ export function NewProject() {
   };
 
   if (!catalog) return error ? <Notice tone="danger">{error}</Notice> : null;
+  // Closed regions are being set up by the owner; customers do not see them.
+  const regions = catalog.regions.filter((r) => r.status !== "closed");
+  const prices = catalog.regions.find((r) => r.id === region)?.prices;
 
   return (
     <form onSubmit={submit} className="flex max-w-3xl flex-col gap-8">
@@ -106,7 +119,7 @@ export function NewProject() {
 
         <Section title="Location">
           <div className="grid gap-3 sm:grid-cols-3">
-            {catalog.regions.map((r) => (
+            {regions.map((r) => (
               <Choice
                 key={r.id}
                 name="region"
@@ -115,12 +128,8 @@ export function NewProject() {
                 disabled={r.status !== "open"}
                 onChange={setRegion}
               >
-                <span className="font-medium text-ink">
-                  {r.name} · {providerLabel[r.provider]}
-                </span>
-                <span className="body-sm text-ink-muted">
-                  {r.status === "open" ? r.location : r.status === "full" ? "Full" : "Coming soon"}
-                </span>
+                <span className="font-medium text-ink">{r.name}</span>
+                <span className="body-sm text-ink-muted">{r.status === "open" ? r.location : "Full"}</span>
               </Choice>
             ))}
           </div>
@@ -133,7 +142,7 @@ export function NewProject() {
                 <span className="font-medium text-ink">{p.name}</span>
                 {catalog.billing && (
                   <span className="metric text-ink">
-                    {formatPrice(p.price_usd)}
+                    {formatPrice(prices?.[p.id] ?? p.price_usd)}
                     <span className="body-sm text-ink-muted"> /mo</span>
                   </span>
                 )}
@@ -148,7 +157,7 @@ export function NewProject() {
           </div>
           {catalog.billing && (
             <p className="body-sm text-ink-muted">
-              Prices are the estimated cloud cost × {catalog.target_markup}, with usage over the plan billed at the same markup.
+              Prices are the estimated server cost in the chosen location × {catalog.target_markup}, with usage over the plan billed at the same markup.
             </p>
           )}
         </Section>

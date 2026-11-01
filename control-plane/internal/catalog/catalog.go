@@ -3,6 +3,8 @@
 // platform database so operators can open or close them without a deploy.
 package catalog
 
+import "math"
+
 // Engine is a database engine a project can run.
 type Engine struct {
 	ID          string `json:"id"`
@@ -50,6 +52,21 @@ var Plans = []Plan{
 	{ID: "business", Name: "Business", CPU: 2, MemoryMB: 8192, DiskGB: 100, FilesGB: 250, EgressGB: 250, Backups: "14-day point-in-time", EstCost: 75, Price: 120, Description: "2 vCPU with a high-availability standby."},
 }
 
+// PriceIn is the plan's monthly price in a region: its estimated cost there
+// (EstCost × the region's multiplier) × markup, rounded up to a .99 price
+// point. Free stays free.
+func (p Plan) PriceIn(multiplier, markup float64) float64 {
+	if p.Price == 0 {
+		return 0
+	}
+	if multiplier <= 0 {
+		multiplier = 1
+	}
+	// Round to cents first so 2.5 × 1.6 counts as 4, not 4.0000001.
+	cost := math.Round(p.EstCost*multiplier*markup*100) / 100
+	return math.Ceil(cost) - 0.01
+}
+
 func PlanByID(id string) (Plan, bool) {
 	for _, p := range Plans {
 		if p.ID == id {
@@ -59,27 +76,19 @@ func PlanByID(id string) (Plan, bool) {
 	return Plan{}, false
 }
 
-// Region is one cell: a cluster on one provider in one location.
+// Region is one location projects can run in. Besides the local region,
+// each is a Docker host of its own (a region server, see the store).
 type Region struct {
-	ID              string  `json:"id"`
-	Name            string  `json:"name"`
-	Provider        string  `json:"provider"`
-	Location        string  `json:"location"`
-	Status          string  `json:"status"` // open, full, closed
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	Location string `json:"location"`
+	Status   string `json:"status"` // open, full, closed
+	// PriceMultiplier is the region's cost relative to the estimate, for
+	// servers that cost more in some places.
 	PriceMultiplier float64 `json:"price_multiplier"`
 }
 
 // LocalRegion runs projects on the Docker host the control plane talks to.
-// It is the only region in self-hosted mode and the dev region in cloud mode.
+// It is the only region until region servers are added.
 var LocalRegion = Region{ID: "local", Name: "Local", Provider: "docker", Location: "This machine", Status: "open", PriceMultiplier: 1}
-
-// CloudRegions are the planned cells. They stay closed until the Kubernetes
-// provisioner and the region's infrastructure exist.
-var CloudRegions = []Region{
-	{ID: "eu-fra", Name: "Frankfurt", Provider: "aws", Location: "eu-central-1", Status: "closed", PriceMultiplier: 1},
-	{ID: "us-iad", Name: "N. Virginia", Provider: "aws", Location: "us-east-1", Status: "closed", PriceMultiplier: 1},
-	{ID: "eu-par", Name: "Paris", Provider: "gcp", Location: "europe-west9", Status: "closed", PriceMultiplier: 1},
-	{ID: "us-dfw", Name: "Dallas", Provider: "gcp", Location: "us-south1", Status: "closed", PriceMultiplier: 1},
-	{ID: "eu-ams", Name: "Amsterdam", Provider: "azure", Location: "westeurope", Status: "closed", PriceMultiplier: 1.05},
-	{ID: "ap-sin", Name: "Singapore", Provider: "azure", Location: "southeastasia", Status: "closed", PriceMultiplier: 1.15},
-}
