@@ -34,13 +34,15 @@ export function Login({
   onSignedIn,
   setupRequired,
   signup,
+  ownerEmail,
 }: {
   onSignedIn: () => void;
   setupRequired: boolean;
   signup: boolean;
+  ownerEmail: boolean;
 }) {
   const [view, setView] = useState<"signin" | "signup" | "token">("signin");
-  if (setupRequired) return <Setup onSignedIn={onSignedIn} />;
+  if (setupRequired) return <Setup onSignedIn={onSignedIn} ownerEmail={ownerEmail} />;
   if (view === "token") return <TokenLogin onSignedIn={onSignedIn} onBack={() => setView("signin")} />;
   if (view === "signup" && signup) return <SignUp onSignedIn={onSignedIn} onBack={() => setView("signin")} />;
   return (
@@ -216,9 +218,10 @@ function TokenLogin({ onSignedIn, onBack }: { onSignedIn: () => void; onBack: ()
   );
 }
 
-// Setup creates the owner account. The API token proves the person runs
-// this install, so nobody else can claim a new public server first.
-function Setup({ onSignedIn }: { onSignedIn: () => void }) {
+// Setup creates the owner account. The API token, or the owner email set
+// in .env, proves the person runs this install, so nobody else can claim a
+// new public server first.
+function Setup({ onSignedIn, ownerEmail }: { onSignedIn: () => void; ownerEmail: boolean }) {
   const [form, setForm] = useState({
     api_token: "",
     email: "",
@@ -252,9 +255,15 @@ function Setup({ onSignedIn }: { onSignedIn: () => void }) {
       subtitle="This FloBase has no accounts yet. The owner can invite the rest of the team."
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field label="API token" hint="FLOBASE_API_TOKEN in the install's .env. It proves you run this server.">
-          <Input type="password" autoComplete="off" value={form.api_token} onChange={set("api_token")} required autoFocus />
-        </Field>
+        {ownerEmail ? (
+          <p className="body-sm text-ink-muted">
+            Use the owner email set in the install's <span className="font-mono">.env</span> (FLOBASE_OWNER_EMAIL).
+          </p>
+        ) : (
+          <Field label="API token" hint="FLOBASE_API_TOKEN in the install's .env. It proves you run this server.">
+            <Input type="password" autoComplete="off" value={form.api_token} onChange={set("api_token")} required autoFocus />
+          </Field>
+        )}
         <Field label="Name">
           <Input autoComplete="name" value={form.name} onChange={set("name")} />
         </Field>

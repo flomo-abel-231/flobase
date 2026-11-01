@@ -500,7 +500,7 @@ async function rawRequest(method: string, path: string, body: unknown, retry: bo
 export const api = {
   config: () => request<ServerConfig>("GET", "/config"),
   me: () => request<Me>("GET", "/me"),
-  authStatus: () => request<{ setup_required: boolean; signup: boolean }>("GET", "/auth/status"),
+  authStatus: () => request<{ setup_required: boolean; signup: boolean; owner_email: boolean }>("GET", "/auth/status"),
   signUp: (input: { email: string; name: string; password: string; workspace: string }) => authRequest("signup", input),
   createWorkspace: (name: string) => request<Workspace>("POST", "/workspaces", { name }),
   renameWorkspace: (id: string, name: string) => request<void>("PATCH", `/workspaces/${id}`, { name }),

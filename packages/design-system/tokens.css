@@ -1,15 +1,18 @@
 /* FloBase design tokens. Light is the default; dark follows the OS
-   unless a page sets data-theme="light" or data-theme="dark" on <html>. */
+   unless a page sets data-theme="light" or data-theme="dark" on <html>.
+   Surfaces follow Coolify's layering: canvas (surface), a slightly lighter
+   panel for the sidebar and top bar, raised cards, hairline borders. */
 
 @import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap");
 
 :root,
 [data-theme="light"] {
   --surface: #fafafa;
+  --surface-panel: #f5f5f5;
   --surface-raised: #ffffff;
-  --surface-sunken: #f5f5f5;
+  --surface-sunken: #ffffff;
   --border: #e5e5e5;
-  --border-strong: #737373;
+  --border-strong: #a3a3a3;
   --ink: #171717;
   --ink-muted: #525252;
   --brand: #0270b0;
@@ -25,11 +28,12 @@
 }
 
 [data-theme="dark"] {
-  --surface: #0a0a0a;
-  --surface-raised: #171717;
-  --surface-sunken: #0f0f0f;
-  --border: #2a2a2a;
-  --border-strong: #737373;
+  --surface: #0e0e0e;
+  --surface-panel: #161616;
+  --surface-raised: #1b1b1b;
+  --surface-sunken: #131313;
+  --border: #262626;
+  --border-strong: #525252;
   --ink: #ededed;
   --ink-muted: #a3a3a3;
   --brand: #38bdf8;
@@ -45,11 +49,12 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --surface: #0a0a0a;
-    --surface-raised: #171717;
-    --surface-sunken: #0f0f0f;
-    --border: #2a2a2a;
-    --border-strong: #737373;
+    --surface: #0e0e0e;
+    --surface-panel: #161616;
+    --surface-raised: #1b1b1b;
+    --surface-sunken: #131313;
+    --border: #262626;
+    --border-strong: #525252;
     --ink: #ededed;
     --ink-muted: #a3a3a3;
     --brand: #38bdf8;

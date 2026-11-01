@@ -3,6 +3,9 @@ import { api, engineLabel, type Project } from "../api";
 import { Box, Button, Card, Notice, PageHeader, StatusBadge } from "../ui";
 import { navigate } from "../App";
 
+// A short mark per engine for the card's icon tile.
+const engineIcon: Record<Project["engine"], string> = { postgres: "PG", mysql: "MY", mongodb: "MG" };
+
 export function Projects() {
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState("");
@@ -28,7 +31,10 @@ export function Projects() {
         title="Projects"
         action={
           <Button variant="primary" onClick={() => navigate("/new")}>
-            + Add
+            <svg viewBox="0 0 20 20" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M10 4v12M4 10h12" />
+            </svg>
+            New project
           </Button>
         }
         subtitle="Each project is its own database with its own keys."
@@ -44,16 +50,22 @@ export function Projects() {
       )}
 
       {projects && projects.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {projects.map((p) => (
             <Box
               key={p.ref}
               href={`#/project/${p.ref}`}
               title={p.name}
-              aside={<StatusBadge status={p.status} />}
+              icon={engineIcon[p.engine]}
               detail={
                 <>
-                  {engineLabel[p.engine]} · {p.plan} · {p.region} · <span className="font-mono">{p.ref}</span>
+                  {engineLabel[p.engine]} · {p.plan} · {p.region}
+                </>
+              }
+              aside={
+                <>
+                  <StatusBadge status={p.status} />
+                  <span className="truncate font-mono text-[11px] text-ink-muted">{p.ref}</span>
                 </>
               }
             />

@@ -285,7 +285,9 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	// In the cloud anyone can sign up; a self-hosted FloBase is claimed
 	// once, with its API token, and grows by invitation.
-	writeJSON(w, http.StatusOK, map[string]bool{"setup_required": n == 0 && !s.billing(), "signup": s.billing()})
+	writeJSON(w, http.StatusOK, map[string]bool{
+		"setup_required": n == 0 && !s.billing(), "signup": s.billing(), "owner_email": s.cfg.OwnerEmail != "",
+	})
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
@@ -309,7 +311,8 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 }
 
 // setupOwner creates the first account. It needs the install's API token,
-// so on a public server nobody but its operator can claim it.
+// or the address set as FLOBASE_OWNER_EMAIL, so on a public server nobody
+// but its operator can claim it.
 func (s *Server) setupOwner(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		APIToken string `json:"api_token"`
@@ -324,9 +327,15 @@ func (s *Server) setupOwner(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "Too many attempts. Wait 15 minutes and try again.")
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(req.APIToken)), []byte(s.cfg.APIToken)) != 1 {
+	byEmail := strings.TrimSpace(req.APIToken) == "" && s.cfg.OwnerEmail != "" &&
+		strings.EqualFold(strings.TrimSpace(req.Email), s.cfg.OwnerEmail)
+	if !byEmail && subtle.ConstantTimeCompare([]byte(strings.TrimSpace(req.APIToken)), []byte(s.cfg.APIToken)) != 1 {
 		s.failAttempt("setup")
-		writeError(w, http.StatusUnauthorized, "That API token is not right. It is FLOBASE_API_TOKEN in the install's .env.")
+		msg := "That API token is not right. It is FLOBASE_API_TOKEN in the install's .env."
+		if s.cfg.OwnerEmail != "" && strings.TrimSpace(req.APIToken) == "" {
+			msg = "Use the owner email set in the install's .env (FLOBASE_OWNER_EMAIL), or enter the API token."
+		}
+		writeError(w, http.StatusUnauthorized, msg)
 		return
 	}
 	email, name, ok := validAccount(w, req.Email, req.Name, req.Password)
