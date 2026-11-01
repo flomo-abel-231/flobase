@@ -37,6 +37,10 @@ type Config struct {
 	// OwnerEmail, when set, is the address whose sign-up becomes the
 	// platform owner (FLOBASE_OWNER_EMAIL); else the first account is.
 	OwnerEmail string
+	// Mail sends FloBase's own emails; DashboardURL is where the dashboard
+	// is reached, for links in them.
+	Mail         SMTP
+	DashboardURL string
 	// Local is a FloBase Desktop or flobase CLI install (~/.flobase).
 	Local bool
 	// Project and Name are the install's Compose project and container
@@ -79,6 +83,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", s.health)
 	mux.HandleFunc("GET /api/v1/config", s.config)
+	mux.HandleFunc("GET /api/v1/plans", s.publicPlans)
 	mux.Handle("GET /api/v1/me", s.auth(s.me))
 	mux.Handle("GET /api/v1/catalog", s.auth(s.catalog))
 	mux.Handle("GET /api/v1/projects", s.auth(s.listProjects))
@@ -97,6 +102,7 @@ func (s *Server) Routes() http.Handler {
 	s.workspaceRoutes(mux)
 	s.tlsRoutes(mux)
 	s.networkRoutes(mux)
+	s.capacityRoutes(mux)
 	return mux
 }
 
@@ -125,6 +131,42 @@ type planView struct {
 	catalog.Plan
 	Markup    float64 `json:"markup,omitempty"`
 	Available bool    `json:"available"`
+	// DeletedAfterDays is set on the cloud's Free plan (see expiry.go).
+	DeletedAfterDays int `json:"deleted_after_days,omitempty"`
+}
+
+// planViews are the plans as a caller sees them: with prices and the
+// Free plan's limit in the cloud, sizes only when self-hosted.
+func (s *Server) planViews(r *http.Request) []planView {
+	plans := make([]planView, 0, len(catalog.Plans))
+	for _, p := range catalog.Plans {
+		v := planView{Plan: p, Available: s.planOpen(r, p)}
+		if s.billing() {
+			v.Price = p.PriceIn(1, s.cfg.Markup)
+			if p.EstCost > 0 && v.Price > 0 {
+				v.Markup = round2(v.Price / p.EstCost)
+			}
+			if p.Price == 0 {
+				v.DeletedAfterDays = freeDays
+			}
+		} else {
+			// Self-hosted has no billing: sizes only.
+			v.EstCost, v.Price = 0, 0
+		}
+		plans = append(plans, v)
+	}
+	return plans
+}
+
+// publicPlans is the plan list for the home page, before anyone signs in.
+func (s *Server) publicPlans(w http.ResponseWriter, r *http.Request) {
+	plans := s.planViews(r)
+	for i := range plans {
+		// Nobody is signed in here, so who(r) would read as the API token.
+		plans[i].Available = !s.billing() || plans[i].Plan.Price == 0
+		plans[i].EstCost, plans[i].Markup = 0, 0
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"plans": plans, "billing": s.billing()})
 }
 
 // regionOffer is a region as the new-project form shows it, with each
@@ -140,20 +182,7 @@ func (s *Server) catalog(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	plans := make([]planView, 0, len(catalog.Plans))
-	for _, p := range catalog.Plans {
-		v := planView{Plan: p, Available: s.planOpen(r, p)}
-		if s.billing() {
-			v.Price = p.PriceIn(1, s.cfg.Markup)
-			if p.EstCost > 0 && v.Price > 0 {
-				v.Markup = round2(v.Price / p.EstCost)
-			}
-		} else {
-			// Self-hosted has no billing: sizes only.
-			v.EstCost, v.Price = 0, 0
-		}
-		plans = append(plans, v)
-	}
+	plans := s.planViews(r)
 	offers := make([]regionOffer, 0, len(regions))
 	for _, r := range regions {
 		o := regionOffer{Region: r}
@@ -307,6 +336,13 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusPaymentRequired, plan.Name+" opens once payments are set up. Start on Free for now.")
 		return
 	}
+	if ok, msg, err := s.fits(r.Context(), ws, planMB(plan), ""); err != nil {
+		s.internal(w, err)
+		return
+	} else if !ok {
+		writeError(w, http.StatusConflict, msg)
+		return
+	}
 	region, err := s.store.Region(r.Context(), req.Region)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && !contains(s.providers(), region.Provider)) {
 		writeError(w, http.StatusBadRequest, "Unknown region.")
@@ -332,11 +368,17 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	if req.Engine == "postgres" {
 		user, dbname = "postgres", "postgres"
 	}
+	var expires *time.Time
+	if s.billing() && plan.ID == "free" {
+		t := time.Now().Add(freeDays * 24 * time.Hour)
+		expires = &t
+	}
 	p, err := s.store.CreateProject(r.Context(), store.Project{
 		WorkspaceID: ws, Ref: ref, Name: req.Name, Engine: req.Engine, Region: region.ID, Plan: plan.ID,
 		DBUser: user, DBPassword: keys.Password(), DBName: dbname,
 		JWTSecret: secret,
 		AnonKey:   keys.APIKey(secret, ref, "anon"), ServiceKey: keys.APIKey(secret, ref, "service_role"),
+		ExpiresAt: expires,
 	})
 	if err != nil {
 		s.internal(w, err)

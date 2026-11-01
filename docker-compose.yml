@@ -40,6 +40,14 @@ services:
       FLOBASE_MARKUP: ${FLOBASE_MARKUP:-1.6}
       FLOBASE_OWNER_EMAIL: ${FLOBASE_OWNER_EMAIL:-}
       FLOBASE_GATEWAY_URL: ${FLOBASE_GATEWAY_URL:-http://localhost:28471}
+      # Where people open the dashboard, for links in FloBase's emails.
+      FLOBASE_DASHBOARD_URL: ${FLOBASE_DASHBOARD_URL:-}
+      # Mail server for FloBase's own emails (free-plan deletion warnings in the cloud).
+      FLOBASE_SMTP_HOST: ${FLOBASE_SMTP_HOST:-}
+      FLOBASE_SMTP_PORT: ${FLOBASE_SMTP_PORT:-587}
+      FLOBASE_SMTP_USER: ${FLOBASE_SMTP_USER:-}
+      FLOBASE_SMTP_PASSWORD: ${FLOBASE_SMTP_PASSWORD:-}
+      FLOBASE_SMTP_FROM: ${FLOBASE_SMTP_FROM:-}
       FLOBASE_ATTACH: ${FLOBASE_NAME:-flobase}-control-plane,${FLOBASE_NAME:-flobase}-gateway
       # Off-site backup copies; leave the bucket empty to keep backups on this machine only.
       FLOBASE_BACKUP_S3_ENDPOINT: ${FLOBASE_BACKUP_S3_ENDPOINT:-}

@@ -50,9 +50,14 @@ type Project struct {
 	ServiceKey   string `json:"-"`
 	TLS          bool   `json:"tls"`
 	// AllowedCIDRs may reach the database ports; empty = anyone.
-	AllowedCIDRs []string  `json:"allowed_cidrs"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	AllowedCIDRs []string `json:"allowed_cidrs"`
+	// ExpiresAt is when a free cloud project is deleted; nil = never.
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	WarnedDays *int       `json:"-"`
+	// SizeBytes is the database's size when last measured; nil = not yet.
+	SizeBytes *int64    `json:"size_bytes,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Store struct{ db *pgxpool.Pool }
@@ -157,13 +162,13 @@ func (s *Store) Region(ctx context.Context, id string) (catalog.Region, error) {
 }
 
 const projectColumns = `id, coalesce(workspace_id::text, ''), ref, name, engine, region, plan, status, status_detail, db_host, db_port, pooler_port,
-	db_user, db_password, db_name, jwt_secret, anon_key, service_key, tls, allowed_cidrs, created_at, updated_at`
+	db_user, db_password, db_name, jwt_secret, anon_key, service_key, tls, allowed_cidrs, expires_at, warned_days, size_bytes, created_at, updated_at`
 
 func scanProject(row pgx.Row) (Project, error) {
 	var p Project
 	err := row.Scan(&p.ID, &p.WorkspaceID, &p.Ref, &p.Name, &p.Engine, &p.Region, &p.Plan, &p.Status, &p.StatusDetail,
 		&p.DBHost, &p.DBPort, &p.PoolerPort, &p.DBUser, &p.DBPassword, &p.DBName, &p.JWTSecret, &p.AnonKey, &p.ServiceKey,
-		&p.TLS, &p.AllowedCIDRs, &p.CreatedAt, &p.UpdatedAt)
+		&p.TLS, &p.AllowedCIDRs, &p.ExpiresAt, &p.WarnedDays, &p.SizeBytes, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, ErrNotFound
 	}
@@ -173,11 +178,11 @@ func scanProject(row pgx.Row) (Project, error) {
 func (s *Store) CreateProject(ctx context.Context, p Project) (Project, error) {
 	return scanProject(s.db.QueryRow(ctx, `
 		insert into projects (workspace_id, ref, name, engine, region, plan, status, db_user, db_password, db_name,
-			jwt_secret, anon_key, service_key)
-		values ($13::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			jwt_secret, anon_key, service_key, expires_at)
+		values ($13::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $14)
 		returning `+projectColumns,
 		p.Ref, p.Name, p.Engine, p.Region, p.Plan, StatusProvisioning, p.DBUser, p.DBPassword, p.DBName,
-		p.JWTSecret, p.AnonKey, p.ServiceKey, p.WorkspaceID))
+		p.JWTSecret, p.AnonKey, p.ServiceKey, p.WorkspaceID, p.ExpiresAt))
 }
 
 func (s *Store) Projects(ctx context.Context) ([]Project, error) {
@@ -239,6 +244,36 @@ func (s *Store) SetAllowedCIDRs(ctx context.Context, ref string, cidrs []string)
 		cidrs = []string{}
 	}
 	_, err := s.db.Exec(ctx, `update projects set allowed_cidrs = $2, updated_at = now() where ref = $1`, ref, cidrs)
+	return err
+}
+
+// ExpireFreeProjects gives free projects without a deletion date one: a
+// month after they were created, but at least warnDays from now, so every
+// project gets its full run of warnings.
+func (s *Store) ExpireFreeProjects(ctx context.Context, warnDays int) error {
+	_, err := s.db.Exec(ctx, `update projects
+		set expires_at = greatest(created_at + interval '1 month', now() + make_interval(days => $1)), warned_days = null
+		where plan = 'free' and expires_at is null and status <> $2`, warnDays, StatusDeleting)
+	return err
+}
+
+// SetPlan moves a project to another plan, with the deletion date that
+// plan gives it (nil = none); its warnings start over.
+func (s *Store) SetPlan(ctx context.Context, ref, plan string, expires *time.Time) error {
+	_, err := s.db.Exec(ctx, `update projects set plan = $2, expires_at = $3, warned_days = null, updated_at = now() where ref = $1`,
+		ref, plan, expires)
+	return err
+}
+
+// SetSize records a project's measured database size.
+func (s *Store) SetSize(ctx context.Context, ref string, bytes int64) error {
+	_, err := s.db.Exec(ctx, `update projects set size_bytes = $2 where ref = $1`, ref, bytes)
+	return err
+}
+
+// SetWarned records the last deletion warning sent for a project.
+func (s *Store) SetWarned(ctx context.Context, ref string, days int) error {
+	_, err := s.db.Exec(ctx, `update projects set warned_days = $2 where ref = $1`, ref, days)
 	return err
 }
 

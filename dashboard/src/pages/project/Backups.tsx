@@ -22,7 +22,7 @@ function toLocalInput(iso: string) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-export function Backups({ project }: { project: Project }) {
+export function Backups({ project, platformAdmin }: { project: Project; platformAdmin: boolean }) {
   const [info, setInfo] = useState<BackupsInfo | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -105,7 +105,7 @@ export function Backups({ project }: { project: Project }) {
         </Card>
       </div>
 
-      <OffsiteLine offsite={info.offsite} />
+      {platformAdmin && <OffsiteLine offsite={info.offsite} />}
 
       <Card className="p-6">
         <form onSubmit={restore} className="flex flex-col gap-5">

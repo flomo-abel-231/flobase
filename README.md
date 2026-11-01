@@ -79,9 +79,11 @@ MongoDB itself is under the SSPL, which would force the whole service's source o
 
 ## Modes
 
-FloBase is offered as self-hosted software only. `FLOBASE_MODE=self-hosted` is the default and the supported mode: plan sizes without prices, and accounts by invitation.
+`FLOBASE_MODE=self-hosted` is the default: one organisation, plan sizes without prices, and accounts by invitation.
 
-`FLOBASE_MODE=cloud` is kept in the code for a possible hosted service later and is not offered: it opens public sign-up and shows prices (estimated server cost in the region × `FLOBASE_MARKUP`, default 1.6, rounded up to .99).
+`FLOBASE_MODE=cloud` runs a hosted service. Visitors land on a home page with the plans; anyone can sign up and gets a workspace of their own. Plans show prices (estimated server cost in the region × `FLOBASE_MARKUP`, default 1.6, rounded up to .99). Paid plans stay closed to everyone but the platform's owner until payments are set up. Free projects have a 500 MB database and are deleted 30 days after they are created; their workspace's owners and admins are warned 15, 10, 5, 3 and 1 days before, by email (with `FLOBASE_SMTP_*` set) and with a banner in the dashboard.
+
+In both modes the platform's owner can give each workspace a storage limit under **Workspace storage**, counted by the database sizes of its projects' plans, and anyone running a workspace can move a project to another plan from its **Configuration > Plan** page.
 
 ## Regions
 

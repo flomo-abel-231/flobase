@@ -35,13 +35,44 @@ export function Login({
   setupRequired,
   signup,
   ownerEmail,
+  initialView = "signin",
+  onHome,
 }: {
   onSignedIn: () => void;
   setupRequired: boolean;
   signup: boolean;
   ownerEmail: boolean;
+  initialView?: "signin" | "signup";
+  onHome?: () => void;
 }) {
-  const [view, setView] = useState<"signin" | "signup" | "token">("signin");
+  const [view, setView] = useState<"signin" | "signup" | "token">(initialView);
+  return (
+    <>
+      {onHome && (
+        <button type="button" onClick={onHome} className="fixed top-4 left-4 body-sm text-ink-muted hover:text-ink">
+          ← FloBase home
+        </button>
+      )}
+      <LoginView view={view} setView={setView} onSignedIn={onSignedIn} setupRequired={setupRequired} signup={signup} ownerEmail={ownerEmail} />
+    </>
+  );
+}
+
+function LoginView({
+  view,
+  setView,
+  onSignedIn,
+  setupRequired,
+  signup,
+  ownerEmail,
+}: {
+  view: "signin" | "signup" | "token";
+  setView: (v: "signin" | "signup" | "token") => void;
+  onSignedIn: () => void;
+  setupRequired: boolean;
+  signup: boolean;
+  ownerEmail: boolean;
+}) {
   if (setupRequired) return <Setup onSignedIn={onSignedIn} ownerEmail={ownerEmail} />;
   if (view === "token") return <TokenLogin onSignedIn={onSignedIn} onBack={() => setView("signin")} />;
   if (view === "signup" && signup) return <SignUp onSignedIn={onSignedIn} onBack={() => setView("signin")} />;

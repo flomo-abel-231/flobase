@@ -5,19 +5,27 @@ import { Button, Card, Notice, PageHeader, ThemeSwitch } from "../ui";
 export function Settings({ config, platformAdmin }: { config: ServerConfig | null; platformAdmin: boolean }) {
   return (
     <div className="flex max-w-3xl flex-col gap-8">
-      <PageHeader title="Settings" subtitle="This FloBase instance and how the dashboard looks to you." />
+      <PageHeader
+        title="Settings"
+        subtitle={platformAdmin ? "This FloBase instance and how the dashboard looks to you." : "How the dashboard looks to you."}
+      />
 
+      {/* How the instance is run is for its operators, not the people using it. */}
       <Card className="flex flex-col divide-y divide-border">
-        <Row label="Mode" value={config ? (config.mode === "cloud" ? "Cloud: plans with prices, regions on your servers" : "Self-hosted: one organisation, no billing") : "—"} />
+        {platformAdmin && (
+          <Row label="Mode" value={config ? (config.mode === "cloud" ? "Cloud: plans with prices, regions on your servers" : "Self-hosted: one organisation, no billing") : "—"} />
+        )}
         <Row label="Theme" value={<ThemeSwitch />} />
       </Card>
 
       {platformAdmin && <UpdatesSection />}
 
-      <p className="body-sm text-ink-muted">
-        Instance settings such as off-site storage, the gateway URL, auto-update and the API token are set in{" "}
-        <span className="font-mono">.env</span> and take effect when FloBase restarts.
-      </p>
+      {platformAdmin && (
+        <p className="body-sm text-ink-muted">
+          Instance settings such as off-site storage, the gateway URL, auto-update and the API token are set in{" "}
+          <span className="font-mono">.env</span> and take effect when FloBase restarts.
+        </p>
+      )}
     </div>
   );
 }

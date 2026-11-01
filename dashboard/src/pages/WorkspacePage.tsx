@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { api, type Me } from "../api";
 import { Button, Card, Field, Input, Notice, PageHeader } from "../ui";
+import { StorageUsage } from "./StorageUsage";
 
 // The current workspace's name, a form for a new workspace, and deleting
 // one that has no projects left. Each workspace is its own organization.
@@ -14,6 +15,7 @@ export function WorkspacePage({ me, onChanged }: { me: Me; onChanged: (switchTo?
         title={current ? current.name : "Workspaces"}
         subtitle="A workspace is one organization: its own projects, members and assistant. Nothing is shared between workspaces."
       />
+      {current && <StorageUsage />}
       {current && canManage && <Rename id={current.id} name={current.name} onDone={() => onChanged()} />}
       <Create onCreated={(id) => onChanged(id)} required={!current} />
       {current?.role === "owner" && <Delete id={current.id} name={current.name} onDone={() => onChanged("")} />}

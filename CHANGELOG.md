@@ -2,6 +2,15 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Home page for the hosted cloud.** With `FLOBASE_MODE=cloud`, visitors who aren't signed in see a front page with what FloBase does and its plans, with **Sign in** and **Start free**. Self-hosted FloBase still opens on sign-in.
+- **Free plan in the cloud: 500 MB, deleted after 30 days.** Free projects are deleted, with their data, 30 days after they are created (or move to Free). The workspace's owners and admins are warned 15, 10, 5, 3 and 1 days before, by email and with a banner in the dashboard. Free projects made before this update get at least 15 days.
+- **Email.** New `FLOBASE_SMTP_*` settings for FloBase's own emails, and `FLOBASE_DASHBOARD_URL` for links in them.
+- **Change plans.** A project's **Configuration > Plan** page moves it to another plan; the database restarts with the new size and keeps its data.
+- **Workspace storage.** The platform's owner gives each workspace a storage limit under **Workspace storage**; new projects and bigger plans must fit in it. The **Workspace** page shows everyone the limit, what their plans take and how much data each database holds, measured hourly.
+- In the cloud, people using FloBase no longer see how it is run: Settings shows only the theme, and the `.env` notes, the off-site backup setup and the GitHub link are for the platform's owner and admins. The pricing explanation under the plans is gone.
+
 ## 0.9.5 — 2026-11-01
 
 - **The assistant looks again instead of trusting an old answer.** It now checks the database with its tools each time you ask about data or tables, rather than repeating what it found earlier in the chat (which kept saying "no tables" after an app had created them).

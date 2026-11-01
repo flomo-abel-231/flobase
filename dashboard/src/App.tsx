@@ -26,6 +26,9 @@ import { Account } from "./pages/Account";
 import { Regions } from "./pages/Regions";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import { Support } from "./pages/Support";
+import { ExpiryBanner } from "./ExpiryBanner";
+import { Home } from "./pages/Home";
+import { WorkspaceCapacity } from "./pages/WorkspaceCapacity";
 
 // Hash routes keep the dashboard servable as static files from any host.
 type Route =
@@ -38,6 +41,7 @@ type Route =
   | { page: "automations" }
   | { page: "team" }
   | { page: "regions" }
+  | { page: "capacity" }
   | { page: "workspace" }
   | { page: "support" }
   | { page: "account" }
@@ -57,6 +61,7 @@ function parseRoute(hash: string): Route {
   if (path === "/automations") return { page: "automations" };
   if (path === "/team") return { page: "team" };
   if (path === "/regions") return { page: "regions" };
+  if (path === "/capacity") return { page: "capacity" };
   if (path === "/workspace") return { page: "workspace" };
   if (path === "/support") return { page: "support" };
   if (path === "/account") return { page: "account" };
@@ -82,6 +87,13 @@ const icons: Record<string, ReactNode> = {
     <>
       <circle cx="10" cy="10" r="7" />
       <path d="M3 10h14M10 3c2 2.2 2.8 4.5 2.8 7s-.8 4.8-2.8 7c-2-2.2-2.8-4.5-2.8-7S8 5.2 10 3z" />
+    </>
+  ),
+  storage: (
+    <>
+      <rect x="3" y="4" width="14" height="5" rx="1.5" />
+      <rect x="3" y="11" width="14" height="5" rx="1.5" />
+      <path d="M6 6.5h.01M6 13.5h.01" />
     </>
   ),
   offsite: <path d="M6 15.5h8.5a3 3 0 0 0 .4-6 4.5 4.5 0 0 0-8.7-1A3.5 3.5 0 0 0 6 15.5zM10 9v5M8 12l2 2 2-2" />,
@@ -212,7 +224,27 @@ export function App() {
 
   if (me === null) return null;
   if (route.page === "invite") return <AcceptInvite token={route.token} onSignedIn={() => void load()} />;
-  if (!me) return <Login setupRequired={setupRequired} signup={signup} ownerEmail={ownerEmail} onSignedIn={() => void load()} />;
+  if (!me) {
+    // The hosted cloud greets visitors with its front page; the sign-in
+    // and sign-up forms are a click away.
+    const path = window.location.hash.replace(/^#/, "");
+    if (config?.mode === "cloud" && path !== "/login" && path !== "/signup") return <Home />;
+    const signedIn = () => {
+      if (path === "/login" || path === "/signup") navigate("/");
+      void load();
+    };
+    return (
+      <Login
+        key={path}
+        setupRequired={setupRequired}
+        signup={signup}
+        ownerEmail={ownerEmail}
+        initialView={path === "/signup" ? "signup" : "signin"}
+        onHome={config?.mode === "cloud" ? () => navigate("/") : undefined}
+        onSignedIn={signedIn}
+      />
+    );
+  }
 
   // Switching workspace re-reads who we are there and remounts every page,
   // so nothing from the previous workspace stays on screen.
@@ -271,6 +303,7 @@ export function App() {
           <>
             <NavSection>Infrastructure</NavSection>
             <NavLink href="#/regions" icon="regions" label="Regions" active={section === "regions"} />
+            <NavLink href="#/capacity" icon="storage" label="Workspace storage" active={section === "capacity"} />
             <NavLink href="#/offsite" icon="offsite" label="Off-site backups" active={section === "offsite"} />
           </>
         )}
@@ -328,14 +361,16 @@ export function App() {
         <div className="flex min-w-0 flex-1 items-center justify-between gap-3 px-6">
           {workspaceSwitch}
           <div className="flex items-center gap-2">
-            <a
-              href="https://github.com/flomo-abel-231/flobase"
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-lg px-2.5 py-1.5 text-[13px] text-ink-muted transition hover:bg-ink/5 hover:text-ink"
-            >
-              GitHub
-            </a>
+            {(supportPage || platformAdmin) && (
+              <a
+                href="https://github.com/flomo-abel-231/flobase"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg px-2.5 py-1.5 text-[13px] text-ink-muted transition hover:bg-ink/5 hover:text-ink"
+              >
+                GitHub
+              </a>
+            )}
             <ThemeSwitch />
           </div>
         </div>
@@ -371,6 +406,11 @@ export function App() {
 
       <div className="lg:pt-12 lg:pl-56">
       <main key={me.workspace} className="mx-auto max-w-[1400px] px-5 py-6 sm:px-8 lg:px-10 lg:pt-7 lg:pb-10">
+        {config?.mode === "cloud" && current && (
+          <div className="mb-6">
+            <ExpiryBanner workspace={me.workspace} />
+          </div>
+        )}
         {!current && route.page !== "account" && route.page !== "support" && <WorkspacePage me={me} onChanged={switchWorkspace} />}
         {(current || route.page === "account" || route.page === "support") && (
           <Pages
@@ -419,11 +459,12 @@ function Pages({
       {route.page === "automations" && <Automations />}
       {route.page === "team" && <Team me={me} />}
       {route.page === "regions" && platformAdmin && <Regions me={me} />}
+      {route.page === "capacity" && platformAdmin && <WorkspaceCapacity />}
       {route.page === "workspace" && <WorkspacePage me={me} onChanged={onWorkspace} />}
       {route.page === "support" && config?.mode === "self-hosted" && <Support />}
       {route.page === "account" && <Account me={me} onChanged={(user) => setMe({ ...me, user })} onSignOut={signOut} />}
       {route.page === "project" && (
-        <ProjectDetail key={route.ref} projectRef={route.ref} tab={route.tab} section={route.section} />
+        <ProjectDetail key={route.ref} projectRef={route.ref} tab={route.tab} section={route.section} platformAdmin={platformAdmin} />
       )}
     </>
   );

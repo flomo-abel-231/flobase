@@ -211,3 +211,53 @@ func (s *Store) RemoveMember(ctx context.Context, ws, userID string) error {
 	}
 	return err
 }
+
+// WorkspaceStorage is a workspace as the platform's owner manages it.
+type WorkspaceStorage struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	OwnerEmail string    `json:"owner_email"`
+	LimitMB    *int      `json:"limit_mb"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// StorageLimit is the most storage a workspace's projects may take, in MB;
+// nil = no limit.
+func (s *Store) StorageLimit(ctx context.Context, ws string) (*int, error) {
+	var limit *int
+	err := s.db.QueryRow(ctx, `select storage_limit_mb from workspaces where id::text = $1`, ws).Scan(&limit)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return limit, err
+}
+
+func (s *Store) SetStorageLimit(ctx context.Context, ws string, limitMB *int) error {
+	tag, err := s.db.Exec(ctx, `update workspaces set storage_limit_mb = $2 where id::text = $1`, ws, limitMB)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
+// WorkspacesStorage lists every workspace with its owner and limit.
+func (s *Store) WorkspacesStorage(ctx context.Context) ([]WorkspaceStorage, error) {
+	rows, err := s.db.Query(ctx, `
+		select w.id, w.name, coalesce((select u.email from workspace_members m join users u on u.id = m.user_id
+			where m.workspace_id = w.id and m.role = 'owner' order by m.created_at limit 1), ''),
+			w.storage_limit_mb, w.created_at
+		from workspaces w order by w.created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []WorkspaceStorage{}
+	for rows.Next() {
+		var w WorkspaceStorage
+		if err := rows.Scan(&w.ID, &w.Name, &w.OwnerEmail, &w.LimitMB, &w.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}

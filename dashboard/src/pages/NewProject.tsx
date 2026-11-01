@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, formatPrice, type Catalog, type EngineId } from "../api";
+import { api, formatMB, formatPrice, type Catalog, type EngineId } from "../api";
 import { Button, Card, Field, Input, Notice } from "../ui";
 import { navigate } from "../App";
 
@@ -87,6 +87,7 @@ export function NewProject() {
   // Closed regions are being set up by the owner; customers do not see them.
   const regions = catalog.regions.filter((r) => r.status !== "closed");
   const prices = catalog.regions.find((r) => r.id === region)?.prices;
+  const selectedPlan = catalog.plans.find((p) => p.id === plan);
 
   return (
     <form onSubmit={submit} className="flex max-w-3xl flex-col gap-8">
@@ -150,17 +151,17 @@ export function NewProject() {
                   {p.cpu} vCPU · {p.memory_mb >= 1024 ? `${p.memory_mb / 1024} GB` : `${p.memory_mb} MB`} RAM
                 </span>
                 <span className="body-sm text-ink-muted">
-                  {p.disk_gb} GB database · {p.backups} backups
+                  {formatMB(Math.round(p.disk_gb * 1000))} database · {p.backups === "None" ? "no" : p.backups} backups
                 </span>
                 {!p.available && <span className="body-sm text-ink-muted">Coming soon</span>}
               </Choice>
             ))}
           </div>
-          {catalog.billing && (
-            <p className="body-sm text-ink-muted">
-              Prices are the estimated server cost in the chosen location × {catalog.target_markup}, with usage over the plan billed at the same markup.
-              {catalog.plans.some((p) => !p.available) && " Paid plans open once payments are set up; start on Free for now."}
-            </p>
+          {selectedPlan?.deleted_after_days && (
+            <Notice tone="warning">
+              Free projects are deleted {selectedPlan.deleted_after_days} days after they are created, together with their data. Export
+              anything you want to keep before then; you will get reminders by email and in the dashboard.
+            </Notice>
           )}
         </Section>
       </Card>
