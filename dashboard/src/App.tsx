@@ -225,6 +225,9 @@ export function App() {
   };
   const platformAdmin = me.role === "owner" || me.role === "admin";
   const current = me.workspaces.find((w) => w.id === me.workspace);
+  // Donations are for the open-source, self-hosted FloBase; the hosted
+  // cloud doesn't ask for them.
+  const supportPage = config?.mode === "self-hosted";
 
   const section =
     route.page === "project" || route.page === "new"
@@ -273,21 +276,23 @@ export function App() {
         )}
       </div>
       <div className="mt-auto flex flex-col gap-0.5 border-t border-border pt-3">
-        <a
-          href="#/support"
-          aria-current={section === "support" ? "page" : undefined}
-          className={`mb-2 flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-[13px] font-medium transition ${
-            section === "support" ? "border-brand bg-brand-subtle text-ink" : "border-border bg-surface-raised text-ink hover:border-border-strong"
-          }`}
-        >
-          <span className="text-brand">
-            <Icon name="heart" />
-          </span>
-          <span className="flex flex-col leading-4">
-            Support FloBase
-            <span className="text-[11px] font-normal text-ink-muted">Free and open source</span>
-          </span>
-        </a>
+        {supportPage && (
+          <a
+            href="#/support"
+            aria-current={section === "support" ? "page" : undefined}
+            className={`mb-2 flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-[13px] font-medium transition ${
+              section === "support" ? "border-brand bg-brand-subtle text-ink" : "border-border bg-surface-raised text-ink hover:border-border-strong"
+            }`}
+          >
+            <span className="text-brand">
+              <Icon name="heart" />
+            </span>
+            <span className="flex flex-col leading-4">
+              Support FloBase
+              <span className="text-[11px] font-normal text-ink-muted">Free and open source</span>
+            </span>
+          </a>
+        )}
         <a
           href="#/account"
           aria-current={section === "account" ? "page" : undefined}
@@ -415,7 +420,7 @@ function Pages({
       {route.page === "team" && <Team me={me} />}
       {route.page === "regions" && platformAdmin && <Regions me={me} />}
       {route.page === "workspace" && <WorkspacePage me={me} onChanged={onWorkspace} />}
-      {route.page === "support" && <Support />}
+      {route.page === "support" && config?.mode === "self-hosted" && <Support />}
       {route.page === "account" && <Account me={me} onChanged={(user) => setMe({ ...me, user })} onSignOut={signOut} />}
       {route.page === "project" && (
         <ProjectDetail key={route.ref} projectRef={route.ref} tab={route.tab} section={route.section} />

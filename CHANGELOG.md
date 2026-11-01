@@ -2,6 +2,11 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Cloud mode: paid plans stay closed until payments are set up.** With `FLOBASE_MODE=cloud`, Starter, Pro and Business show "Coming soon" on the new-project form and the API turns them down, so people who sign up can start on Free only. The platform's owner can still use every plan. Self-hosted FloBase is unchanged.
+- The **Support FloBase** page and its sidebar link appear only on self-hosted FloBase, not on the hosted cloud.
+
 ## 0.9.3 — 2026-11-01
 
 - **Table editor grid in the style of DataTables:** choose 10, 25, 50 or 100 entries per page, search across every column, click a column header to sort (ascending, descending, off), and move between numbered pages, with "Showing 1 to 25 of 1,234 entries (filtered from N total)" below. Rows are striped and highlight on hover, the header stays in view, and **Export CSV** downloads the rows on the page. Searching, sorting and paging run in the database, so big tables stay fast.
