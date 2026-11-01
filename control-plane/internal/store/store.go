@@ -211,6 +211,11 @@ func (s *Store) SetActive(ctx context.Context, ref, host string, port, poolerPor
 	return err
 }
 
+func (s *Store) SetPassword(ctx context.Context, ref, password string) error {
+	_, err := s.db.Exec(ctx, `update projects set db_password = $2, updated_at = now() where ref = $1`, ref, password)
+	return err
+}
+
 func (s *Store) DeleteProject(ctx context.Context, ref string) error {
 	_, err := s.db.Exec(ctx, `delete from projects where ref = $1`, ref)
 	return err
