@@ -47,6 +47,20 @@ func (a *App) startup(ctx context.Context) {
 // Version is this app's release.
 func (a *App) Version() string { return version }
 
+// AppUpdate returns the newest FloBase Desktop release when it is later
+// than this app, or "". FloBase itself updates on its own; the app is
+// replaced by downloading the new one.
+func (a *App) AppUpdate() string {
+	if a.m == nil {
+		return ""
+	}
+	latest, err := a.m.LatestRelease(a.ctx)
+	if err != nil || !local.Newer(latest, version) {
+		return ""
+	}
+	return latest
+}
+
 // Status reports whether FloBase runs, and where.
 func (a *App) Status() local.Status {
 	if a.m == nil {
