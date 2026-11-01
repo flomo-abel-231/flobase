@@ -105,7 +105,9 @@ function UpdatesSection() {
             label="Automatic updates"
             value={
               !u.can_update
-                ? "Off: not installed with the install script"
+                ? u.install === "local"
+                  ? "Off: update from FloBase Desktop or with flobase update"
+                  : "Off: not installed with the install script"
                 : u.auto
                   ? "On: installs new releases within 6 hours"
                   : "Off: set FLOBASE_AUTO_UPDATE=true to turn on"
@@ -123,7 +125,8 @@ function UpdatesSection() {
             </div>
           ) : (
             <p className="body-sm text-ink-muted">
-              Update by hand on the server: <span className="font-mono">{u.manual_steps}</span>
+              {u.install === "local" ? "Update with Check for updates in FloBase Desktop, or run " : "Update by hand on the server: "}
+              <span className="font-mono">{u.manual_steps}</span>
             </p>
           )}
           {u.notes && (

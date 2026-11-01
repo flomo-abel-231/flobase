@@ -81,7 +81,11 @@ Files live in `~/.flobase` (`%USERPROFILE%\.flobase` on Windows): the release's 
 
 ## Updates
 
-FloBase on your computer updates when you ask: click **Check for updates** in the app, or run `flobase update`. Download a newer FloBase Desktop or rerun the CLI install script to update the app or CLI itself. Projects and data are kept across updates.
+FloBase on your computer updates itself, like a server install. It checks [GitHub Releases](https://github.com/flomo-abel-231/flobase/releases) every six hours and, when a newer release appears, runs `upgrade.sh` in `~/.flobase`: it backs up FloBase's own database to `~/.flobase/backups/`, pulls the new version and restarts, and goes back to the previous version if the new one does not come up healthy. Each step is logged to `~/.flobase/upgrade.log`. Settings → Updates in the dashboard shows the versions and has an **Update to …** button for updating right away; **Check for updates** in the app and `flobase update` do the same. Projects and data are kept across updates.
+
+To update only when you ask, set `FLOBASE_AUTO_UPDATE=false` in `~/.flobase/.env` and run `flobase start`. On Windows, Docker cannot mount the install folder for the updater, so update from the app or with `flobase update`.
+
+The app and the CLI themselves do not replace themselves: FloBase Desktop says when a newer version is available, with a link to download it, and `flobase update` prints the install command when a newer CLI is out.
 
 ## Troubleshooting
 

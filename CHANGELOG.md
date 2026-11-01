@@ -2,6 +2,14 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- FloBase Desktop and `flobase` CLI installs update themselves, like server installs: the control plane checks GitHub Releases every 6 hours and runs `upgrade.sh` in `~/.flobase`, which backs up FloBase's own database and goes back to the previous version if the new one does not come up healthy. The dashboard's Settings shows automatic updates as on, and **Update to …** works there. Installs from 0.3.0 and before turn this on with their next update (Check for updates, or `flobase update`) or the next start of the new app. To turn it off, set `FLOBASE_AUTO_UPDATE=false` in `~/.flobase/.env`. On Windows, Docker cannot mount the install folder, so update from the desktop app or with `flobase update`; the dashboard now says so instead of pointing at `upgrade.sh`.
+- `flobase update` and the desktop app's Check for updates also back up FloBase's own database first and go back to the previous version if the new one fails to start.
+- FloBase Desktop says when a newer version of the app is available, with a link to download it. `flobase update` prints the install command when a newer CLI is out.
+- `upgrade.sh` works for any install folder, Compose project and `FLOBASE_NAME`, and does not rely on the container names of an install in `/data/flobase`.
+- `FLOBASE_LOCAL_NAME` runs a second local FloBase with its own Compose project and container names.
+
 ## 0.3.0 — 2026-11-01
 
 - Storage locations: add S3-compatible buckets for off-site backup copies on the Off-site backups page, with presets for AWS S3, Cloudflare R2, Backblaze B2, Wasabi and MinIO. FloBase tests the bucket before saving, and you can switch the active location or stop copying without a restart. Before, off-site storage could only be set in `.env`, which still works and takes precedence.

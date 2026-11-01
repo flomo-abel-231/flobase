@@ -6,11 +6,16 @@
 // It keeps everything in ~/.flobase (FLOBASE_LOCAL_DIR overrides): the
 // release's docker-compose.yml, a .env with generated secrets, and runs the
 // stack as the Compose project "flobase-local", so it never shares volumes
-// with a server-style install on the same machine.
+// with a server-style install on the same machine. FLOBASE_LOCAL_NAME picks
+// another project name, for a second local FloBase.
+//
+// The control plane updates the stack itself, like a server install: it
+// runs the release's upgrade.sh in ~/.flobase (see the api package).
 package local
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -32,13 +37,15 @@ import (
 
 const (
 	DefaultRepo = "flomo-abel-231/flobase"
-	project     = "flobase-local"
+	defaultName = "flobase-local"
 )
 
 // Manager runs one local FloBase.
 type Manager struct {
 	Dir  string
 	Repo string
+	// Name is the Compose project and the containers' prefix.
+	Name string
 	// Version is the release this program belongs to; a dev build follows
 	// the latest release.
 	Version string
@@ -68,7 +75,11 @@ func New(version string) (*Manager, error) {
 		}
 		dir = filepath.Join(home, ".flobase")
 	}
-	return &Manager{Dir: dir, Repo: DefaultRepo, Version: version}, nil
+	name := os.Getenv("FLOBASE_LOCAL_NAME")
+	if name == "" {
+		name = defaultName
+	}
+	return &Manager{Dir: dir, Repo: DefaultRepo, Name: name, Version: version}, nil
 }
 
 func (m *Manager) step(format string, args ...any) {
@@ -120,7 +131,7 @@ func (m *Manager) engineReady(ctx context.Context) bool {
 }
 
 func (m *Manager) compose(ctx context.Context, args ...string) (string, error) {
-	base := []string{"compose", "-p", project, "--project-directory", m.Dir, "-f", filepath.Join(m.Dir, "docker-compose.yml")}
+	base := []string{"compose", "-p", m.Name, "--project-directory", m.Dir, "-f", filepath.Join(m.Dir, "docker-compose.yml")}
 	return m.docker(ctx, append(base, args...)...)
 }
 
@@ -304,15 +315,55 @@ func (m *Manager) install(ctx context.Context, version string) error {
 			"FLOBASE_API_TOKEN": secret(), "FLOBASE_PLATFORM_DB_PASSWORD": secret(),
 			"FLOBASE_PUBLIC_HOST": "localhost", "FLOBASE_GATEWAY_URL": fmt.Sprintf("http://localhost:%d", gw),
 			"FLOBASE_PORT": strconv.Itoa(dash), "FLOBASE_GATEWAY_PORT": strconv.Itoa(gw),
-			// The desktop app and CLI update the stack themselves.
-			"FLOBASE_AUTO_UPDATE": "false", "FLOBASE_INSTALL_DIR": "",
+			"FLOBASE_AUTO_UPDATE": "true", "FLOBASE_INSTALL_DIR": m.updateDir(),
 		}); err != nil {
 			return err
 		}
 	}
-	// Container names of their own, so a server install or a source
-	// checkout can run on the same Docker engine.
-	return m.setEnv(map[string]string{"FLOBASE_VERSION": version, "FLOBASE_NAME": project})
+	// The control plane runs upgrade.sh to update; a missing one is fetched
+	// then.
+	if err := m.download(ctx, version, "upgrade.sh", filepath.Join(m.Dir, "upgrade.sh")); err != nil {
+		m.step("Could not download upgrade.sh: %v", err)
+	}
+	if err := m.migrateEnv(); err != nil {
+		return err
+	}
+	return m.setEnv(map[string]string{"FLOBASE_VERSION": version})
+}
+
+// updateDir is FLOBASE_INSTALL_DIR: the folder the control plane's updater
+// mounts. Windows paths cannot be mounted at the same path inside a Linux
+// container, so there FloBase Desktop and `flobase update` do the updates.
+func (m *Manager) updateDir() string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
+	return m.Dir
+}
+
+// migrateEnv brings an existing .env up to date. Container names and a
+// Compose project of their own let a server install or a source checkout
+// run on the same Docker engine, and let upgrade.sh find this stack.
+// Installs from 0.3.0 and before turned automatic updates off and had no
+// install directory: they update by themselves now. Turning it off again
+// (FLOBASE_AUTO_UPDATE=false with the directory set) stays off.
+func (m *Manager) migrateEnv() error {
+	env := m.Env()
+	values := map[string]string{"FLOBASE_NAME": m.Name, "COMPOSE_PROJECT_NAME": m.Name, "FLOBASE_INSTALL_KIND": "local"}
+	if dir := m.updateDir(); dir != "" && env["FLOBASE_INSTALL_DIR"] == "" {
+		values["FLOBASE_INSTALL_DIR"] = dir
+		values["FLOBASE_AUTO_UPDATE"] = "true"
+	}
+	changed := false
+	for k, v := range values {
+		if env[k] != v {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return m.setEnv(values)
 }
 
 // --- lifecycle -----------------------------------------------------------
@@ -467,6 +518,9 @@ func (m *Manager) Start(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := m.migrateEnv(); err != nil {
+		return err
+	}
 	if err := m.portsFree(ctx); err != nil {
 		return err
 	}
@@ -573,7 +627,9 @@ func (m *Manager) Logs(ctx context.Context, lines int) (string, error) {
 }
 
 // Update moves the local stack to the latest release if there is a newer
-// one, and reports the version it ends on.
+// one, and reports the version it ends on. Like upgrade.sh, it backs up
+// the platform database first and goes back to the previous version if the
+// new one does not come up healthy.
 func (m *Manager) Update(ctx context.Context) (string, error) {
 	if err := m.CheckDocker(ctx); err != nil {
 		return "", err
@@ -585,23 +641,117 @@ func (m *Manager) Update(ctx context.Context) (string, error) {
 	}
 	if !Newer(latest, current) {
 		m.step("FloBase %s is the latest release", current)
-		return current, nil
+		// Still bring settings from older desktop apps up to date.
+		return current, m.migrateEnv()
+	}
+	if state, _ := m.docker(ctx, "inspect", "-f", "{{.State.Status}}", m.Name+"-updater"); strings.TrimSpace(state) == "running" {
+		return current, errors.New("FloBase is already updating itself; it is back in a minute or two")
+	}
+	running := m.healthy(ctx)
+	if running {
+		if err := m.backupPlatform(ctx, current); err != nil {
+			return current, err
+		}
+	}
+	prev, err := m.keepForRollback()
+	if err != nil {
+		return current, err
+	}
+	rollback := func(cause error) (string, error) {
+		m.step("Update failed; going back to FloBase %s", current)
+		prev.restore()
+		if running {
+			if _, err := m.compose(ctx, "up", "-d", "--remove-orphans"); err != nil {
+				return current, fmt.Errorf("%w; going back to %s also failed: %v", cause, current, err)
+			}
+		}
+		return current, cause
 	}
 	if err := m.install(ctx, latest); err != nil {
-		return current, err
+		return rollback(err)
 	}
 	m.step("Updating FloBase %s to %s", current, latest)
 	if _, err := m.compose(ctx, "pull", "--quiet"); err != nil {
-		return current, err
+		return rollback(err)
+	}
+	if !running {
+		// Stopped: the new version starts with the next `flobase start`.
+		m.step("FloBase will run %s from its next start", latest)
+		return latest, nil
 	}
 	if _, err := m.compose(ctx, "up", "-d", "--remove-orphans"); err != nil {
-		return current, err
+		return rollback(err)
 	}
 	if err := m.waitHealthy(ctx); err != nil {
-		return latest, err
+		return rollback(err)
 	}
 	m.step("FloBase is now %s", latest)
 	return latest, nil
+}
+
+// backupPlatform dumps the platform database (projects, keys, regions)
+// into backups/, keeping the newest ten, as upgrade.sh does.
+func (m *Manager) backupPlatform(ctx context.Context, version string) error {
+	m.step("Backing up FloBase's own database")
+	dir := filepath.Join(m.Dir, "backups")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if version == "" {
+		version = "unknown"
+	}
+	path := filepath.Join(dir, fmt.Sprintf("platform-%s-from-%s.sql.gz", time.Now().UTC().Format("20060102T150405Z"), version))
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	zw := gzip.NewWriter(f)
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, m.dockerPath(), "compose", "-p", m.Name, "--project-directory", m.Dir,
+		"-f", filepath.Join(m.Dir, "docker-compose.yml"), "exec", "-T", "platform-db", "pg_dump", "-U", "flobase", "-d", "flobase")
+	cmd.Env = append(os.Environ(), m.dockerEnv...)
+	cmd.Stdout, cmd.Stderr = zw, &stderr
+	hideWindow(cmd)
+	err = cmd.Run()
+	if cerr := zw.Close(); err == nil {
+		err = cerr
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
+		return fmt.Errorf("back up the platform database: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	old, _ := filepath.Glob(filepath.Join(dir, "platform-*.sql.gz"))
+	sort.Sort(sort.Reverse(sort.StringSlice(old)))
+	for i, f := range old {
+		if i >= 10 {
+			os.Remove(f)
+		}
+	}
+	return nil
+}
+
+// saved holds the compose file and .env from before an update.
+type saved map[string][]byte
+
+func (m *Manager) keepForRollback() (saved, error) {
+	s := saved{}
+	for _, f := range []string{"docker-compose.yml", ".env"} {
+		b, err := os.ReadFile(filepath.Join(m.Dir, f))
+		if err != nil {
+			return nil, err
+		}
+		s[filepath.Join(m.Dir, f)] = b
+	}
+	return s, nil
+}
+
+func (s saved) restore() {
+	for path, b := range s {
+		_ = os.WriteFile(path, b, 0o600)
+	}
 }
 
 // Uninstall removes FloBase. With everything, it also deletes every
