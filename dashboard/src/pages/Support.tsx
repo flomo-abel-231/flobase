@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 import { Card, PageHeader } from "../ui";
 import { contactLink, support } from "../support";
 
-// Support FloBase: donations through Stripe, grants and sponsorship, paid
-// support, and the free ways to help. The page only links out; no payment
-// details pass through FloBase.
+// Support FloBase: donations through GitHub Sponsors and Stripe, grants and
+// sponsorship, paid support, and the free ways to help. The page only links
+// out; no payment details pass through FloBase.
 
 function Way({ title, children, action }: { title: string; children: ReactNode; action: ReactNode }) {
   return (
@@ -53,20 +53,28 @@ export function Support() {
         <div className="flex flex-col gap-1">
           <h2 className="text-[18px] font-semibold tracking-tight text-ink">Donate</h2>
           <p className="body-sm max-w-xl text-ink-muted">
-            Give once or every month, any amount. Payments are handled by Stripe; you choose the amount on Stripe's page and get a
-            receipt by email.
+            Give once or every month, any amount: sponsor on GitHub, or pay with a card through Stripe. You choose the amount on their
+            page and get a receipt by email.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {support.githubSponsors && (
+            <LinkButton href={`https://github.com/sponsors/${support.githubSponsors}`} primary>
+              <svg viewBox="0 0 16 16" className="size-3.5" fill="currentColor" aria-hidden>
+                <path d="M8 14.25s-5.75-3.4-5.75-7.4A3.1 3.1 0 0 1 8 4.9a3.1 3.1 0 0 1 5.75 1.95c0 4-5.75 7.4-5.75 7.4z" />
+              </svg>
+              Sponsor on GitHub
+            </LinkButton>
+          )}
           {support.stripeMonthly ? (
-            <LinkButton href={support.stripeMonthly} primary>
+            <LinkButton href={support.stripeMonthly} primary={!support.githubSponsors}>
               Give monthly
             </LinkButton>
           ) : (
             <Soon>Give monthly</Soon>
           )}
           {support.stripeOneTime ? (
-            <LinkButton href={support.stripeOneTime} primary={!support.stripeMonthly}>
+            <LinkButton href={support.stripeOneTime} primary={!support.githubSponsors && !support.stripeMonthly}>
               Give once
             </LinkButton>
           ) : (

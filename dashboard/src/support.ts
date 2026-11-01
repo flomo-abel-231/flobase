@@ -8,6 +8,10 @@
 export const support = {
   stripeOneTime: "",
   stripeMonthly: "",
+  // GitHub account whose Sponsors page takes sponsorships
+  // (github.com/sponsors/<name>); empty hides the button. GitHub Sponsors
+  // has monthly and one-time tiers and takes no fee on personal accounts.
+  githubSponsors: "flomo-abel-231",
   // Where organizations write about grants, sponsorship and paid support.
   // Empty = a GitHub issue on the repository.
   contactEmail: "",
