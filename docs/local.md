@@ -73,8 +73,8 @@ The script checks the download's checksum, installs `flobase` (to `~/.local/bin`
 
 ## Using it
 
-- Dashboard: <http://localhost:8080>. Sign in with the API token from `flobase status` or the app's **Copy API token** button.
-- Project APIs: `http://localhost:8000/project/<ref>`, for the Supabase client libraries.
+- Dashboard: <http://localhost:28470>. Sign in with the API token from `flobase status` or the app's **Copy API token** button.
+- Project APIs: `http://localhost:28471/project/<ref>`, for the Supabase client libraries.
 - Direct and pooled database connections: shown on each project's **Configuration → Connect** page.
 
 Files live in `~/.flobase` (`%USERPROFILE%\.flobase` on Windows): the release's `docker-compose.yml`, `.env` with your secrets, and on macOS the engine's programs. On macOS FloBase's engine VM lives in `~/.colima/flobase`; `flobase stop` shuts it down to give its memory back, and `flobase uninstall --all` deletes it with its data disk and download cache. Set `FLOBASE_LOCAL_DIR` to use another folder.
@@ -88,7 +88,7 @@ FloBase on your computer updates when you ask: click **Check for updates** in th
 | Problem | What to do |
 | --- | --- |
 | "Another FloBase is running on this Docker engine" | A server install or a source checkout's `make up` holds the same ports. Stop it with the command in the message, then start again. |
-| Ports 8080 or 8000 are in use by something else | Set `FLOBASE_PORT` and `FLOBASE_GATEWAY_PORT` in `~/.flobase/.env`, then `flobase start`. |
+| A port is in use by something else | FloBase picks free ports at first setup (28470 and 28471, or the next free pair) and remembers them. If another program takes them later, set `FLOBASE_PORT`, `FLOBASE_GATEWAY_PORT` and `FLOBASE_GATEWAY_URL` in `~/.flobase/.env`, then `flobase start`. |
 | macOS: the engine does not start | Check macOS is 13 or later, then `flobase logs`; delete `~/.flobase/runtime` and start again to reinstall the engine. |
 | Windows: Docker Desktop does not start | Open Docker Desktop once, accept its terms, then start FloBase again. |
 | Anything else | `flobase logs`, then [open an issue](https://github.com/flomo-abel-231/flobase/issues) with the output. |

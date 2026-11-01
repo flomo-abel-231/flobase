@@ -22,12 +22,12 @@ FloBase runs on one Linux server with Docker. The installer pulls the released i
 | Disk | 30 GB | 100 GB SSD: images take about 3 GB, then data and backups |
 | Docker | Engine 24+ with the Compose v2 plugin | Installed by the installer if missing |
 
-Open these ports in your firewall:
+FloBase uses uncommon ports so they do not clash with other development tools. Open these in your firewall (or only 443 behind a reverse proxy, see [Domain and HTTPS](#domain-and-https)):
 
 | Port | What |
 | --- | --- |
-| 8080 | Dashboard and control-plane API |
-| 8000 | Project APIs (REST, GraphQL, auth) for your apps |
+| 28470 | Dashboard and control-plane API |
+| 28471 | Project APIs (REST, GraphQL, auth) for your apps |
 | Random high ports | Each project's direct and pooled database connections, shown on its Connect page |
 
 macOS with Docker Desktop works for trying FloBase out (`FLOBASE_INSTALL_DIR=$HOME/flobase`), but run production on Linux.
@@ -61,8 +61,8 @@ curl -fsSL https://raw.githubusercontent.com/flomo-abel-231/flobase/main/scripts
 | `FLOBASE_INSTALL_DIR` | `/data/flobase` | Where the compose file, `.env` and platform backups live |
 | `FLOBASE_PUBLIC_HOST` | the server's first IP | Host name or IP your apps use to reach project databases |
 | `FLOBASE_AUTO_UPDATE` | `true` | Install new releases automatically |
-| `FLOBASE_PORT` | `8080` | Dashboard port |
-| `FLOBASE_GATEWAY_PORT` | `8000` | Project API port |
+| `FLOBASE_PORT` | `28470` | Dashboard port |
+| `FLOBASE_GATEWAY_PORT` | `28471` | Project API port |
 
 Running the installer again is safe: it keeps `.env` and upgrades to the requested release.
 
@@ -86,14 +86,14 @@ docker compose up -d
 
 ## Sign in and create a project
 
-Open `http://<server>:8080`, sign in with the API token the installer printed (also `FLOBASE_API_TOKEN` in `.env`), and click **+ Add** on the Projects page. The first project on each engine downloads that engine's images, which takes a few minutes; after that a Postgres project is ready in under a minute.
+Open `http://<server>:28470`, sign in with the API token the installer printed (also `FLOBASE_API_TOKEN` in `.env`), and click **+ Add** on the Projects page. The first project on each engine downloads that engine's images, which takes a few minutes; after that a Postgres project is ready in under a minute.
 
 Use a Postgres project from your app with the Supabase client libraries:
 
 ```js
 import { createClient } from "@supabase/supabase-js";
 
-const db = createClient("http://<server>:8000/project/<ref>", "<anon key>");
+const db = createClient("http://<server>:28471/project/<ref>", "<anon key>");
 ```
 
 The project URL and keys are under the project's **Configuration → API**.
@@ -124,15 +124,15 @@ Put a reverse proxy with TLS in front before you expose FloBase to the internet.
 
 ```caddyfile
 flobase.example.com {
-	reverse_proxy localhost:8080
+	reverse_proxy localhost:28470
 }
 
 api.flobase.example.com {
-	reverse_proxy localhost:8000
+	reverse_proxy localhost:28471
 }
 ```
 
-Then set `FLOBASE_GATEWAY_URL=https://api.flobase.example.com` and `FLOBASE_PUBLIC_HOST=flobase.example.com` in `.env`, run `docker compose up -d`, and close ports 8080 and 8000 to the outside.
+Then set `FLOBASE_GATEWAY_URL=https://api.flobase.example.com` and `FLOBASE_PUBLIC_HOST=flobase.example.com` in `.env`, run `docker compose up -d`, and close ports 28470 and 28471 to the outside.
 
 ## Updates
 
