@@ -1,0 +1,4 @@
+# The Sponsor button on the repository page. Add the Stripe Payment Links
+# under custom once they exist, e.g.
+#   custom: ["https://donate.stripe.com/..."]
+github: [flomo-abel-231]

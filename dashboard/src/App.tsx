@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   api,
+  ApiError,
   getToken,
   getWorkspace,
   refreshSession,
@@ -166,7 +167,15 @@ export function App() {
   const load = async () => {
     try {
       if (getToken() || (await refreshSession())) {
-        let m = await api.me();
+        // A remembered workspace the person is no longer in (removed, or
+        // deleted) is refused: forget it rather than signing them out.
+        let m = await api.me().catch((err) => {
+          if (err instanceof ApiError && err.status === 403 && getWorkspace()) {
+            setWorkspace("");
+            return api.me();
+          }
+          throw err;
+        });
         // Remember the workspace the server settled on, unless the one
         // remembered is still valid.
         if (!m.workspaces.some((w) => w.id === getWorkspace())) {
