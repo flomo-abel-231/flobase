@@ -91,7 +91,8 @@ done`
 // EnsureOffsite starts the project's sync container unless it runs already
 // or off-site storage is off. meta is stored next to the copies.
 func (d *Docker) EnsureOffsite(ctx context.Context, ref string, meta map[string]any) error {
-	if d.offsite == nil {
+	o := d.currentOffsite()
+	if o == nil {
 		return nil
 	}
 	name := "flobase-" + ref + "-offsite"
@@ -107,13 +108,28 @@ func (d *Docker) EnsureOffsite(ctx context.Context, ref string, meta map[string]
 	c := container{
 		suffix: "offsite", image: rcloneImage,
 		entrypoint: []string{"sh", "-c"}, cmd: []string{shipperScript},
-		env: append(d.offsite.env(), "REF="+ref, "META="+string(b)),
+		env: append(o.env(), "REF="+ref, "META="+string(b)),
 		mounts: []mount{
 			{volume: vol(ref, "backups"), path: "/backups", readOnly: true},
 			{volume: vol(ref, "db-config"), path: "/config", readOnly: true},
 		},
 	}
 	return d.run(ctx, Spec{Ref: ref}, c, name, "flobase-"+ref)
+}
+
+// OffsiteSyncNow copies a project's backups to off-site storage now rather
+// than at the sync container's next 30-second round, and returns once they
+// are there. It runs inside the sync container, which has the storage
+// settings and the backups mounted.
+func (d *Docker) OffsiteSyncNow(ctx context.Context, ref string) error {
+	if d.currentOffsite() == nil {
+		return fmt.Errorf("off-site storage is not set up")
+	}
+	_, err := d.exec(ctx, "flobase-"+ref+"-offsite", "", "sh", "-c", rclonePrelude+`D="${ROOT}$REF"
+rclone copy /backups "$D" -q --exclude '*.part' --exclude '*.part/**'
+rclone copy /config "$D/config" -q
+echo "synced $(date -u +%Y-%m-%dT%H:%M:%SZ)"`)
+	return err
 }
 
 // StopOffsite removes a project's sync container, for when off-site
@@ -127,14 +143,46 @@ func (d *Docker) StopOffsite(ctx context.Context, ref string) error {
 }
 
 // OffsiteEnabled reports whether copies leave this machine.
-func (d *Docker) OffsiteEnabled() bool { return d.offsite != nil }
+func (d *Docker) OffsiteEnabled() bool { return d.currentOffsite() != nil }
 
-// rclone runs a script in a throwaway rclone container and returns its
-// output.
+// OffsiteInfo describes the storage in use, without its secrets.
+func (d *Docker) OffsiteInfo() (bucket string, encrypted, enabled bool) {
+	o := d.currentOffsite()
+	if o == nil {
+		return "", false, false
+	}
+	return o.Bucket, o.EncryptionKey != "", true
+}
+
+// TestOffsite checks that a storage location works before it is used: it
+// writes a small file through the same path the copies take (encrypted
+// when o has a key), reads it back and deletes it.
+func (d *Docker) TestOffsite(ctx context.Context, o *Offsite) error {
+	out, err := d.rcloneWith(ctx, o, "platform", `f="${ROOT}.flobase-connection-test"
+echo "flobase $(date -u +%s)" | rclone rcat "$f"
+rclone cat "$f" | grep -q flobase
+rclone deletefile "$f"
+echo connection-ok`, nil, nil)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(out, "connection-ok") {
+		return fmt.Errorf("the test file could not be written and read back")
+	}
+	return nil
+}
+
+// rclone runs a script in a throwaway rclone container against the storage
+// in use and returns its output.
 func (d *Docker) rclone(ctx context.Context, ref, script string, env []string, mounts []mount) (string, error) {
-	if d.offsite == nil {
+	o := d.currentOffsite()
+	if o == nil {
 		return "", fmt.Errorf("off-site storage is not set up")
 	}
+	return d.rcloneWith(ctx, o, ref, script, env, mounts)
+}
+
+func (d *Docker) rcloneWith(ctx context.Context, o *Offsite, ref, script string, env []string, mounts []mount) (string, error) {
 	if err := d.pull(ctx, rcloneImage); err != nil {
 		return "", err
 	}
@@ -142,7 +190,7 @@ func (d *Docker) rclone(ctx context.Context, ref, script string, env []string, m
 	c := container{
 		suffix: "rclone", image: rcloneImage, oneShot: true,
 		entrypoint: []string{"sh", "-c"}, cmd: []string{rclonePrelude + script},
-		env: append(d.offsite.env(), env...), mounts: mounts,
+		env: append(o.env(), env...), mounts: mounts,
 	}
 	if err := d.run(ctx, Spec{Ref: ref}, c, name, "bridge"); err != nil {
 		return "", err
@@ -236,7 +284,7 @@ rclone copy "$D/base/$BACKUP" "/restore/base/$BACKUP" -q
 rclone copy "$D/config" /restore/config -q
 test -f "/restore/base/$BACKUP/base.tar.gz"
 echo "fetched $BACKUP"`},
-		env:    append(d.offsite.env(), "FROM="+s.Restore.FromRef, "BACKUP="+safeName(s.Restore.Backup)),
+		env:    append(d.currentOffsite().env(), "FROM="+s.Restore.FromRef, "BACKUP="+safeName(s.Restore.Backup)),
 		mounts: []mount{{volume: vol(s.Ref, "incoming"), path: "/restore"}},
 	}
 }

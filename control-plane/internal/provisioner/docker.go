@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,7 +22,8 @@ type Docker struct {
 	http       *http.Client
 	publicHost string   // host clients use to reach published ports
 	attach     []string // containers joined to every project network (control plane, gateway)
-	offsite    *Offsite // nil = backups stay on this machine only
+	offsiteMu  sync.RWMutex
+	offsite    *Offsite // nil = backups stay on this machine only; see SetOffsite
 }
 
 func NewDocker(socket, publicHost string, attach []string, offsite *Offsite) *Docker {
@@ -31,6 +33,22 @@ func NewDocker(socket, publicHost string, attach []string, offsite *Offsite) *Do
 		},
 	}
 	return &Docker{http: &http.Client{Transport: transport}, publicHost: publicHost, attach: attach, offsite: offsite}
+}
+
+// SetOffsite changes where off-site copies go (nil = nowhere). Projects'
+// sync containers pick it up when they are restarted; see the api package.
+func (d *Docker) SetOffsite(o *Offsite) {
+	d.offsiteMu.Lock()
+	d.offsite = o
+	d.offsiteMu.Unlock()
+}
+
+// currentOffsite is the storage in use now. An Offsite is never changed in
+// place, so the pointer is safe to use after the lock is released.
+func (d *Docker) currentOffsite() *Offsite {
+	d.offsiteMu.RLock()
+	defer d.offsiteMu.RUnlock()
+	return d.offsite
 }
 
 const label = "dev.flobase.project"
@@ -118,7 +136,7 @@ func (d *Docker) Create(ctx context.Context, s Spec) (Endpoint, error) {
 		return Endpoint{}, err
 	}
 	if s.Restore != nil && s.Restore.Offsite {
-		if d.offsite == nil {
+		if d.currentOffsite() == nil {
 			return Endpoint{}, fmt.Errorf("off-site storage is not set up")
 		}
 		specs = append([]container{d.fetchContainer(s)}, specs...)

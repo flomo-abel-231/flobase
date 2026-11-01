@@ -85,7 +85,11 @@ type Provisioner interface {
 
 	// Off-site copies (see offsite.go).
 	OffsiteEnabled() bool
+	OffsiteInfo() (bucket string, encrypted, enabled bool)
+	SetOffsite(o *Offsite)
+	TestOffsite(ctx context.Context, o *Offsite) error
 	EnsureOffsite(ctx context.Context, ref string, meta map[string]any) error
+	OffsiteSyncNow(ctx context.Context, ref string) error
 	StopOffsite(ctx context.Context, ref string) error
 	OffsiteProjects(ctx context.Context) ([]OffsiteProject, error)
 }
