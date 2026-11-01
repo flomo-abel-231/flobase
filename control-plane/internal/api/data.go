@@ -31,6 +31,7 @@ const (
 
 func (s *Server) dataRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/projects/{ref}/sql", s.auth(s.runSQL))
+	mux.Handle("GET /api/v1/projects/{ref}/schemas", s.auth(s.listSchemas))
 	mux.Handle("GET /api/v1/projects/{ref}/tables", s.auth(s.listTables))
 	mux.Handle("POST /api/v1/projects/{ref}/tables", s.auth(s.createTable))
 	mux.Handle("GET /api/v1/projects/{ref}/tables/{table}/rows", s.auth(s.tableRows))
@@ -265,9 +266,79 @@ func (s *Server) runMySQL(ctx context.Context, p store.Project, query string, re
 
 type tableInfo struct {
 	Name     string    `json:"name"`
+	Kind     string    `json:"kind"` // table or view
 	RLS      bool      `json:"rls"`
 	Estimate int64     `json:"row_estimate"`
 	Columns  []colInfo `json:"columns,omitempty"`
+}
+
+// The table editor works in any schema, as Supabase's does. Schemas the
+// Supabase services own are shown read-only there; their changes belong
+// to those services or the SQL editor.
+var protectedSchemas = map[string]bool{
+	"auth": true, "storage": true, "extensions": true, "graphql": true, "graphql_public": true,
+	"pgbouncer": true, "realtime": true, "_realtime": true, "supabase_functions": true,
+	"supabase_migrations": true, "vault": true, "net": true, "pgsodium": true, "pgsodium_masks": true,
+	"cron": true, "_analytics": true,
+}
+
+// userSchema is the schema the request names (default public). It must
+// exist and not be one of Postgres's own; every identifier built from it
+// comes from the catalog, never the request.
+func userSchema(ctx context.Context, conn *pgx.Conn, r *http.Request) (string, error) {
+	name := r.URL.Query().Get("schema")
+	if name == "" {
+		name = "public"
+	}
+	var ok bool
+	err := conn.QueryRow(ctx, `select exists (select 1 from pg_namespace where nspname = $1
+		and nspname not like 'pg\_%' and nspname <> 'information_schema')`, name).Scan(&ok)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", store.ErrNotFound
+	}
+	return name, nil
+}
+
+type schemaInfo struct {
+	Name      string `json:"name"`
+	Tables    int    `json:"tables"`
+	Protected bool   `json:"protected"`
+}
+
+func (s *Server) listSchemas(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.activeProject(w, r, "postgres")
+	if !ok {
+		return
+	}
+	conn, err := s.pgConnect(r.Context(), p)
+	if err != nil {
+		dbError(w, err)
+		return
+	}
+	defer conn.Close(context.Background())
+	rows, err := conn.Query(r.Context(), `
+		select n.nspname, count(c.oid) filter (where c.relkind in ('r', 'p', 'v', 'm'))
+		from pg_namespace n left join pg_class c on c.relnamespace = n.oid
+		where n.nspname not like 'pg\_%' and n.nspname <> 'information_schema'
+		group by n.nspname order by n.nspname`)
+	if err != nil {
+		dbError(w, err)
+		return
+	}
+	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (schemaInfo, error) {
+		var sc schemaInfo
+		err := row.Scan(&sc.Name, &sc.Tables)
+		sc.Protected = protectedSchemas[sc.Name]
+		return sc, err
+	})
+	if err != nil {
+		dbError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
 }
 
 type colInfo struct {
@@ -289,18 +360,27 @@ func (s *Server) listTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close(context.Background())
+	schema, err := userSchema(r.Context(), conn, r)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "Schema not found.")
+		return
+	} else if err != nil {
+		dbError(w, err)
+		return
+	}
 	rows, err := conn.Query(r.Context(), `
-		select c.relname, c.relrowsecurity, greatest(c.reltuples, 0)::bigint
+		select c.relname, case when c.relkind in ('v', 'm') then 'view' else 'table' end,
+			c.relrowsecurity, greatest(c.reltuples, 0)::bigint
 		from pg_class c join pg_namespace n on n.oid = c.relnamespace
-		where n.nspname = 'public' and c.relkind in ('r', 'p')
-		order by c.relname`)
+		where n.nspname = $1 and c.relkind in ('r', 'p', 'v', 'm')
+		order by c.relname`, schema)
 	if err != nil {
 		dbError(w, err)
 		return
 	}
 	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (tableInfo, error) {
 		var t tableInfo
-		err := row.Scan(&t.Name, &t.RLS, &t.Estimate)
+		err := row.Scan(&t.Name, &t.Kind, &t.RLS, &t.Estimate)
 		return t, err
 	})
 	if err != nil {
@@ -310,9 +390,10 @@ func (s *Server) listTables(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tables)
 }
 
-// columns reads a public table's columns; an unknown table is ErrNotFound.
-// Every identifier the editor puts in SQL comes from here, never the request.
-func columns(ctx context.Context, conn *pgx.Conn, table string) ([]colInfo, error) {
+// columns reads a table's or view's columns; an unknown one is
+// ErrNotFound. Every identifier the editor puts in SQL comes from here,
+// never the request.
+func columns(ctx context.Context, conn *pgx.Conn, schema, table string) ([]colInfo, error) {
 	rows, err := conn.Query(ctx, `
 		select a.attname, format_type(a.atttypid, a.atttypmod), not a.attnotnull,
 			pg_get_expr(d.adbin, d.adrelid),
@@ -322,8 +403,9 @@ func columns(ctx context.Context, conn *pgx.Conn, table string) ([]colInfo, erro
 		join pg_namespace n on n.oid = c.relnamespace
 		left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
 		left join pg_index i on i.indrelid = c.oid and i.indisprimary
-		where n.nspname = 'public' and c.relname = $1 and a.attnum > 0 and not a.attisdropped
-		order by a.attnum`, table)
+		where n.nspname = $1 and c.relname = $2 and c.relkind in ('r', 'p', 'v', 'm')
+			and a.attnum > 0 and not a.attisdropped
+		order by a.attnum`, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -338,8 +420,16 @@ func columns(ctx context.Context, conn *pgx.Conn, table string) ([]colInfo, erro
 	return cols, err
 }
 
-// withTable connects and loads the table named in the path.
-func (s *Server) withTable(w http.ResponseWriter, r *http.Request, fn func(conn *pgx.Conn, ident string, cols []colInfo)) {
+// relation is the table or view a table-editor request works on.
+type relation struct {
+	ident     string // schema-qualified and quoted
+	view      bool
+	protected bool
+}
+
+// withTable connects and loads the table named in the path, in the schema
+// named in the query. Writes are refused in protected schemas and views.
+func (s *Server) withTable(w http.ResponseWriter, r *http.Request, write bool, fn func(conn *pgx.Conn, rel relation, cols []colInfo)) {
 	p, ok := s.activeProject(w, r, "postgres")
 	if !ok {
 		return
@@ -350,8 +440,16 @@ func (s *Server) withTable(w http.ResponseWriter, r *http.Request, fn func(conn 
 		return
 	}
 	defer conn.Close(context.Background())
+	schema, err := userSchema(r.Context(), conn, r)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "Schema not found.")
+		return
+	} else if err != nil {
+		dbError(w, err)
+		return
+	}
 	table := r.PathValue("table")
-	cols, err := columns(r.Context(), conn, table)
+	cols, err := columns(r.Context(), conn, schema, table)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "Table not found.")
 		return
@@ -359,7 +457,20 @@ func (s *Server) withTable(w http.ResponseWriter, r *http.Request, fn func(conn 
 		dbError(w, err)
 		return
 	}
-	fn(conn, pgx.Identifier{"public", table}.Sanitize(), cols)
+	rel := relation{ident: pgx.Identifier{schema, table}.Sanitize(), protected: protectedSchemas[schema]}
+	var kind string
+	if err := conn.QueryRow(r.Context(), "select relkind::text from pg_class where oid = $1::regclass", rel.ident).Scan(&kind); err != nil {
+		dbError(w, err)
+		return
+	}
+	rel.view = kind == "v" || kind == "m"
+	if write && (rel.protected || rel.view) {
+		writeError(w, http.StatusForbidden, "This is read-only in the table editor: "+
+			map[bool]string{true: "views have no rows of their own.", false: "the " + schema + " schema belongs to FloBase's services."}[rel.view]+
+			" Use the SQL editor to change it.")
+		return
+	}
+	fn(conn, rel, cols)
 }
 
 func quoteCols(cols []colInfo, keep func(colInfo) bool) []string {
@@ -373,7 +484,8 @@ func quoteCols(cols []colInfo, keep func(colInfo) bool) []string {
 }
 
 func (s *Server) tableRows(w http.ResponseWriter, r *http.Request) {
-	s.withTable(w, r, func(conn *pgx.Conn, ident string, cols []colInfo) {
+	s.withTable(w, r, false, func(conn *pgx.Conn, rel relation, cols []colInfo) {
+		ident := rel.ident
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		if limit <= 0 || limit > 500 {
 			limit = 100
@@ -381,7 +493,11 @@ func (s *Server) tableRows(w http.ResponseWriter, r *http.Request) {
 		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 		order := quoteCols(cols, func(c colInfo) bool { return c.Primary })
 		if order == nil {
+			// Views have no ctid; their first column gives a stable order.
 			order = []string{"ctid"}
+			if rel.view {
+				order = []string{"1"}
+			}
 		}
 		var total int64
 		if err := conn.QueryRow(r.Context(), "select count(*) from "+ident).Scan(&total); err != nil {
@@ -402,7 +518,10 @@ func (s *Server) tableRows(w http.ResponseWriter, r *http.Request) {
 		}
 		var rls bool
 		_ = conn.QueryRow(r.Context(), "select relrowsecurity from pg_class where oid = $1::regclass", ident).Scan(&rls)
-		writeJSON(w, http.StatusOK, map[string]any{"columns": cols, "rows": data, "total": total, "rls": rls})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"columns": cols, "rows": data, "total": total, "rls": rls,
+			"view": rel.view, "read_only": rel.view || rel.protected,
+		})
 	})
 }
 
@@ -424,7 +543,8 @@ func names(cols []colInfo) string {
 }
 
 func (s *Server) insertRow(w http.ResponseWriter, r *http.Request) {
-	s.withTable(w, r, func(conn *pgx.Conn, ident string, cols []colInfo) {
+	s.withTable(w, r, true, func(conn *pgx.Conn, rel relation, cols []colInfo) {
+		ident := rel.ident
 		var req struct {
 			Values map[string]any `json:"values"`
 		}
@@ -473,7 +593,8 @@ func matchClause(w http.ResponseWriter, ident string, cols []colInfo, match map[
 }
 
 func (s *Server) updateRow(w http.ResponseWriter, r *http.Request) {
-	s.withTable(w, r, func(conn *pgx.Conn, ident string, cols []colInfo) {
+	s.withTable(w, r, true, func(conn *pgx.Conn, rel relation, cols []colInfo) {
+		ident := rel.ident
 		var req rowChange
 		if !decode(w, r, &req) {
 			return
@@ -503,7 +624,8 @@ func (s *Server) updateRow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteRow(w http.ResponseWriter, r *http.Request) {
-	s.withTable(w, r, func(conn *pgx.Conn, ident string, cols []colInfo) {
+	s.withTable(w, r, true, func(conn *pgx.Conn, rel relation, cols []colInfo) {
+		ident := rel.ident
 		var req rowChange
 		if !decode(w, r, &req) {
 			return
@@ -562,17 +684,29 @@ func (s *Server) createTable(w http.ResponseWriter, r *http.Request) {
 		}
 		defs = append(defs, def)
 	}
-	ident := pgx.Identifier{"public", req.Name}.Sanitize()
-	stmt := "create table " + ident + " (\n  " + strings.Join(defs, ",\n  ") + "\n);"
-	if req.RLS {
-		stmt += "\nalter table " + ident + " enable row level security;"
-	}
 	conn, err := s.pgConnect(r.Context(), p)
 	if err != nil {
 		dbError(w, err)
 		return
 	}
 	defer conn.Close(context.Background())
+	schema, err := userSchema(r.Context(), conn, r)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "Schema not found.")
+		return
+	} else if err != nil {
+		dbError(w, err)
+		return
+	}
+	if protectedSchemas[schema] {
+		writeError(w, http.StatusForbidden, "The "+schema+" schema belongs to FloBase's services; create tables in another schema.")
+		return
+	}
+	ident := pgx.Identifier{schema, req.Name}.Sanitize()
+	stmt := "create table " + ident + " (\n  " + strings.Join(defs, ",\n  ") + "\n);"
+	if req.RLS {
+		stmt += "\nalter table " + ident + " enable row level security;"
+	}
 	if _, err := conn.Exec(r.Context(), stmt); err != nil {
 		dbError(w, err)
 		return

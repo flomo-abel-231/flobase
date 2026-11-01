@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
-import { api, type Column, type NewColumn, type Project, type TableInfo, type TableRows } from "../../api";
+import { api, type Column, type NewColumn, type Project, type SchemaInfo, type TableInfo, type TableRows } from "../../api";
 import { Button, Card, Field, Input, Notice } from "../../ui";
 
 const PAGE = 100;
@@ -31,22 +31,70 @@ function toValue(text: string): unknown {
 
 const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
 
+// Only these schemas are served by the project's REST API, so only there
+// does row-level security decide what the anon key can reach.
+const apiSchemas = ["public"];
+
+// The schema the editor shows is remembered per project in this browser.
+const schemaKey = (ref: string) => `flobase.schema.${ref}`;
+function rememberedSchema(ref: string): string {
+  try {
+    return localStorage.getItem(schemaKey(ref)) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+// TableEditor browses any schema, as Supabase's does: a schema picker, the
+// schema's tables and views, and the chosen one's columns and rows.
 export function TableEditor({ project }: { project: Project }) {
+  const [schemas, setSchemas] = useState<SchemaInfo[] | null>(null);
+  const [schema, setSchema] = useState("");
   const [tables, setTables] = useState<TableInfo[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
-  const loadTables = useCallback(async (select?: string) => {
+  // Open on the remembered schema, else public if it has tables, else the
+  // first of the project's own schemas that does.
+  useEffect(() => {
+    api
+      .schemas(project.ref)
+      .then((list) => {
+        setSchemas(list);
+        const remembered = rememberedSchema(project.ref);
+        const has = (n: string) => list.some((x) => x.name === n);
+        const own = list.filter((x) => !x.protected);
+        const first = own.find((x) => x.name === "public" && x.tables > 0) ?? own.find((x) => x.tables > 0) ?? own.find((x) => x.name === "public");
+        setSchema(remembered && has(remembered) ? remembered : first?.name ?? "public");
+      })
+      .catch((e) => setError((e as Error).message));
+  }, [project.ref]);
+
+  const pickSchema = (name: string) => {
     try {
-      const list = await api.tables(project.ref);
+      localStorage.setItem(schemaKey(project.ref), name);
+    } catch {
+      // Not remembered; fine.
+    }
+    setSchema(name);
+    setSelected(null);
+    setCreating(false);
+  };
+
+  const current = schemas?.find((x) => x.name === schema);
+
+  const loadTables = useCallback(async (select?: string) => {
+    if (!schema) return;
+    try {
+      const list = await api.tables(project.ref, schema);
       setTables(list);
       setSelected((cur) => select ?? (cur && list.some((t) => t.name === cur) ? cur : list[0]?.name ?? null));
       setError("");
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [project.ref]);
+  }, [project.ref, schema]);
 
   useEffect(() => {
     loadTables();
@@ -55,7 +103,34 @@ export function TableEditor({ project }: { project: Project }) {
   return (
     <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
       <aside className="flex flex-col gap-3">
-        <Button onClick={() => setCreating(true)}>New table</Button>
+        <label className="flex flex-col gap-1">
+          <span className="label text-ink-muted">Schema</span>
+          <select
+            value={schema}
+            onChange={(e) => pickSchema(e.target.value)}
+            className="h-8 rounded-lg border border-border bg-surface-raised px-2 text-[13px] text-ink hover:border-border-strong"
+          >
+            {schemas
+              ?.filter((x) => !x.protected)
+              .map((x) => (
+                <option key={x.name} value={x.name}>
+                  {x.name} ({x.tables})
+                </option>
+              ))}
+            {schemas?.some((x) => x.protected) && (
+              <optgroup label="FloBase's own (read-only)">
+                {schemas
+                  .filter((x) => x.protected)
+                  .map((x) => (
+                    <option key={x.name} value={x.name}>
+                      {x.name} ({x.tables})
+                    </option>
+                  ))}
+              </optgroup>
+            )}
+          </select>
+        </label>
+        {!current?.protected && <Button onClick={() => setCreating(true)}>New table</Button>}
         <nav aria-label="Tables">
           <ul className="flex flex-col gap-0.5">
             {tables?.map((t) => (
@@ -72,13 +147,17 @@ export function TableEditor({ project }: { project: Project }) {
                   }`}
                 >
                   <span className="code truncate">{t.name}</span>
-                  {!t.rls && <span className="label shrink-0 text-warning">RLS off</span>}
+                  {t.kind === "view" ? (
+                    <span className="label shrink-0 text-ink-muted">view</span>
+                  ) : (
+                    !t.rls && apiSchemas.includes(schema) && <span className="label shrink-0 text-warning">RLS off</span>
+                  )}
                 </button>
               </li>
             ))}
           </ul>
         </nav>
-        {tables && tables.length === 0 && <p className="body-sm text-ink-muted">No tables in the public schema yet.</p>}
+        {tables && tables.length === 0 && <p className="body-sm text-ink-muted">No tables in the {schema} schema yet.</p>}
       </aside>
 
       <section className="min-w-0">
@@ -86,6 +165,7 @@ export function TableEditor({ project }: { project: Project }) {
         {creating ? (
           <NewTable
             project={project}
+            schema={schema}
             onCancel={() => setCreating(false)}
             onCreated={(name) => {
               setCreating(false);
@@ -93,14 +173,14 @@ export function TableEditor({ project }: { project: Project }) {
             }}
           />
         ) : selected ? (
-          <TableView key={selected} project={project} table={selected} onChanged={() => loadTables()} />
+          <TableView key={schema + "." + selected} project={project} schema={schema} table={selected} onChanged={() => loadTables()} />
         ) : null}
       </section>
     </div>
   );
 }
 
-function TableView({ project, table, onChanged }: { project: Project; table: string; onChanged: () => void }) {
+function TableView({ project, schema, table, onChanged }: { project: Project; schema: string; table: string; onChanged: () => void }) {
   const [data, setData] = useState<TableRows | null>(null);
   const [offset, setOffset] = useState(0);
   const [error, setError] = useState("");
@@ -110,12 +190,12 @@ function TableView({ project, table, onChanged }: { project: Project; table: str
 
   const load = useCallback(async () => {
     try {
-      setData(await api.rows(project.ref, table, offset, PAGE));
+      setData(await api.rows(project.ref, schema, table, offset, PAGE));
       setError("");
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [project.ref, table, offset]);
+  }, [project.ref, schema, table, offset]);
 
   useEffect(() => {
     load();
@@ -123,7 +203,8 @@ function TableView({ project, table, onChanged }: { project: Project; table: str
 
   if (!data) return error ? <Notice tone="danger">{error}</Notice> : null;
 
-  const pk = data.columns.filter((c) => c.primary);
+  // Rows are editable when the table has a primary key and is not read-only.
+  const pk = data.read_only ? [] : data.columns.filter((c) => c.primary);
   const match = (row: Record<string, unknown>) => Object.fromEntries(pk.map((c) => [c.name, row[c.name]]));
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -142,7 +223,7 @@ function TableView({ project, table, onChanged }: { project: Project; table: str
     const e = editing;
     setEditing(null);
     if (display(row[e.col]) === e.value) return;
-    act(() => api.updateRow(project.ref, table, match(row), { [e.col]: toValue(e.value) }));
+    act(() => api.updateRow(project.ref, schema, table, match(row), { [e.col]: toValue(e.value) }));
   };
 
   const onEditKey = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -156,12 +237,12 @@ function TableView({ project, table, onChanged }: { project: Project; table: str
     // Blank fields are left out so column defaults apply.
     const values = Object.fromEntries(Object.entries(adding).filter(([, v]) => v !== ""));
     setAdding(null);
-    act(() => api.insertRow(project.ref, table, values));
+    act(() => api.insertRow(project.ref, schema, table, values));
   };
 
   const enableRLS = () =>
     act(async () => {
-      await api.sql(project.ref, `alter table public.${quote(table)} enable row level security;`);
+      await api.sql(project.ref, `alter table ${quote(schema)}.${quote(table)} enable row level security;`);
       onChanged();
     });
 
@@ -169,19 +250,31 @@ function TableView({ project, table, onChanged }: { project: Project; table: str
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col">
-          <h2 className="h3 code">{table}</h2>
+          <h2 className="h3 code">
+            <span className="text-ink-muted">{schema}.</span>
+            {table}
+          </h2>
           <span className="body-sm text-ink-muted">
+            {data.view ? "View · " : ""}
             {data.total.toLocaleString()} rows · {data.columns.length} columns
-            {pk.length === 0 ? " · no primary key, so rows are read-only here" : ""}
+            {data.read_only
+              ? data.view
+                ? " · read-only: a view has no rows of its own"
+                : ` · read-only: the ${schema} schema belongs to FloBase's services`
+              : pk.length === 0
+                ? " · no primary key, so rows are read-only here"
+                : ""}
           </span>
         </div>
-        <Button variant="primary" onClick={() => setAdding({})} disabled={adding !== null}>
-          Insert row
-        </Button>
+        {!data.read_only && (
+          <Button variant="primary" onClick={() => setAdding({})} disabled={adding !== null}>
+            Insert row
+          </Button>
+        )}
       </div>
 
       {error && <Notice tone="danger">{error}</Notice>}
-      {!data.rls && (
+      {!data.rls && !data.read_only && apiSchemas.includes(schema) && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning bg-surface-raised px-4 py-3">
           <p className="body-sm text-warning">
             <strong className="font-medium">Row-level security is off.</strong> Anyone with the anon key can read and change every
@@ -269,7 +362,7 @@ function TableView({ project, table, onChanged }: { project: Project; table: str
                           variant="danger"
                           onClick={() => {
                             setConfirm(null);
-                            act(() => api.deleteRow(project.ref, table, match(row)));
+                            act(() => api.deleteRow(project.ref, schema, table, match(row)));
                           }}
                         >
                           Delete
@@ -314,7 +407,17 @@ function hint(c: Column): string {
   return c.nullable ? "Blank means NULL." : "Required.";
 }
 
-function NewTable({ project, onCancel, onCreated }: { project: Project; onCancel: () => void; onCreated: (name: string) => void }) {
+function NewTable({
+  project,
+  schema,
+  onCancel,
+  onCreated,
+}: {
+  project: Project;
+  schema: string;
+  onCancel: () => void;
+  onCreated: (name: string) => void;
+}) {
   const [name, setName] = useState("");
   const [rls, setRls] = useState(true);
   const [cols, setCols] = useState<NewColumn[]>([{ name: "", type: "text", nullable: true }]);
@@ -327,7 +430,7 @@ function NewTable({ project, onCancel, onCreated }: { project: Project; onCancel
     e.preventDefault();
     setBusy(true);
     try {
-      await api.createTable(project.ref, { name: name.trim(), rls, columns: cols.filter((c) => c.name.trim()) });
+      await api.createTable(project.ref, schema, { name: name.trim(), rls, columns: cols.filter((c) => c.name.trim()) });
       onCreated(name.trim());
     } catch (err) {
       setError((err as Error).message);
