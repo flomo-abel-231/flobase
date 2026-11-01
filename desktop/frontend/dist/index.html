@@ -63,6 +63,7 @@
       .notice { padding: 12px 16px; border-radius: 6px; border: 1px solid; white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
       .notice.danger { border-color: var(--danger); color: var(--danger); background: var(--surface-raised); }
       .notice.warning { border-color: var(--warning); color: var(--warning); background: var(--surface-raised); }
+      .notice.info { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-color: var(--brand); color: var(--ink); background: var(--brand-subtle); }
       pre.logs { margin: 0; padding: 12px; max-height: 220px; overflow: auto; background: var(--surface-sunken); white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
       [hidden] { display: none !important; }
       footer { font-size: 12px; }
@@ -97,6 +98,10 @@
 
       <div class="notice danger" id="error" role="alert" hidden></div>
       <div class="notice warning" id="restart" role="alert" hidden></div>
+      <div class="notice info" id="appUpdate" hidden>
+        <span id="appUpdateText"></span>
+        <button class="primary" id="appDownload">Download</button>
+      </div>
 
       <section class="box progress muted" id="progress" hidden></section>
 
@@ -150,6 +155,13 @@
 
       async function refresh() { render(await app().Status()); }
 
+      // FloBase updates itself; this app is replaced by downloading the new one.
+      async function checkApp() {
+        const latest = await app().AppUpdate();
+        $("appUpdate").hidden = !latest;
+        $("appUpdateText").textContent = latest ? "FloBase Desktop " + latest + " is available." : "";
+      }
+
       window.addEventListener("load", async () => {
         $("version").textContent = "v" + (await app().Version());
         window.runtime.EventsOn("busy", (name) => { busy = name; $("error").hidden = true; refresh(); });
@@ -160,7 +172,8 @@
         $("open").onclick = () => app().OpenDashboard();
         $("start").onclick = () => app().Start();
         $("stop").onclick = () => app().Stop();
-        $("update").onclick = () => app().Update();
+        $("update").onclick = () => { checkApp(); app().Update(); };
+        $("appDownload").onclick = () => app().OpenURL("https://github.com/flomo-abel-231/flobase/releases/latest");
         $("folder").onclick = () => app().OpenFolder();
         $("docs").onclick = (e) => { e.preventDefault(); app().OpenURL("https://github.com/flomo-abel-231/flobase/blob/main/docs/local.md"); };
         $("token").onclick = async () => {
@@ -177,6 +190,8 @@
         };
         refresh();
         setInterval(() => { if (!busy) refresh(); }, 5000);
+        checkApp();
+        setInterval(checkApp, 6 * 60 * 60 * 1000);
       });
     </script>
   </body>

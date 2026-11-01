@@ -35,6 +35,11 @@ type Config struct {
 	UpdateRepo string
 	AutoUpdate bool
 	InstallDir string
+	// Local is a FloBase Desktop or flobase CLI install (~/.flobase).
+	Local bool
+	// Project and Name are the install's Compose project and container
+	// prefix (FLOBASE_NAME), so the updater works on this install only.
+	Project, Name string
 }
 
 type Server struct {

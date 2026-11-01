@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 
 	"flobase/control-plane/local"
@@ -123,7 +124,10 @@ func run(ctx context.Context, cmd string, args []string) error {
 		fmt.Print(out)
 		return err
 	case "update":
-		_, err := m.Update(ctx)
+		v, err := m.Update(ctx)
+		if err == nil && local.Newer(v, version) {
+			fmt.Printf("\nThis flobase program is %s; get %s with the install command:\n  %s\n", version, v, cliInstall())
+		}
 		return err
 	case "uninstall":
 		fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
@@ -143,6 +147,14 @@ func run(ctx context.Context, cmd string, args []string) error {
 		return fmt.Errorf("unknown command %q", cmd)
 	}
 	return nil
+}
+
+// cliInstall is the command that installs the newest flobase program.
+func cliInstall() string {
+	if runtime.GOOS == "windows" {
+		return "irm https://raw.githubusercontent.com/flomo-abel-231/flobase/main/scripts/install-cli.ps1 | iex"
+	}
+	return "curl -fsSL https://raw.githubusercontent.com/flomo-abel-231/flobase/main/scripts/install-cli.sh | sh"
 }
 
 func printURLs(m *local.Manager, s local.Status) {

@@ -9,19 +9,23 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"flobase/control-plane/internal/provisioner"
 )
 
 // Updates: the control plane asks GitHub Releases for the newest FloBase
 // every few hours. With auto-update on, and FloBase installed by the
-// install script (so upgrade.sh and the compose file live in InstallDir),
-// it starts the updater; otherwise the dashboard offers the update.
+// install script or by FloBase Desktop and the flobase CLI (so the compose
+// file lives in InstallDir), it starts the updater; otherwise the dashboard
+// offers the update.
 
 const updateEvery = 6 * time.Hour
 
 // Updater is what the provisioner offers for self-updates.
 type Updater interface {
-	StartUpdater(ctx context.Context, installDir, version, repo string) error
-	UpdaterRunning(ctx context.Context) bool
+	StartUpdater(ctx context.Context, job provisioner.UpdateJob) error
+	UpdaterRunning(ctx context.Context, name string) bool
+	UpdateFailed(ctx context.Context, name, version string) bool
 }
 
 type updateState struct {
@@ -34,12 +38,15 @@ type updateState struct {
 }
 
 type updateView struct {
-	Current     string     `json:"current"`
-	Latest      string     `json:"latest,omitempty"`
-	Available   bool       `json:"available"`
-	Notes       string     `json:"notes,omitempty"`
-	ReleaseURL  string     `json:"release_url,omitempty"`
-	Auto        bool       `json:"auto"`
+	Current    string `json:"current"`
+	Latest     string `json:"latest,omitempty"`
+	Available  bool   `json:"available"`
+	Notes      string `json:"notes,omitempty"`
+	ReleaseURL string `json:"release_url,omitempty"`
+	Auto       bool   `json:"auto"`
+	// Install is "server" (install.sh) or "local" (FloBase Desktop or the
+	// flobase CLI).
+	Install     string     `json:"install"`
 	CanUpdate   bool       `json:"can_update"`
 	Updating    bool       `json:"updating"`
 	CheckedAt   *time.Time `json:"checked_at,omitempty"`
@@ -53,11 +60,19 @@ func (s *Server) updateRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/updates", s.auth(s.updateNow))
 }
 
-// canUpdate: the updater needs the install directory, and a dev build has
-// no version to compare.
+// canUpdate: the updater needs the install directory as a host path it
+// can mount (not a Windows one), and a dev build has no version to compare.
 func (s *Server) canUpdate() bool {
 	_, ok := parseVersion(s.cfg.Version)
-	return s.cfg.InstallDir != "" && s.updater != nil && ok
+	return strings.HasPrefix(s.cfg.InstallDir, "/") && s.updater != nil && ok
+}
+
+// startUpdater upgrades this install to version.
+func (s *Server) startUpdater(ctx context.Context, version string) error {
+	return s.updater.StartUpdater(ctx, provisioner.UpdateJob{
+		Install: provisioner.Install{Project: s.cfg.Project, Dir: s.cfg.InstallDir, Name: s.cfg.Name},
+		Version: version, Repo: s.cfg.UpdateRepo, Fetch: s.cfg.Local,
+	})
 }
 
 // RunUpdateChecks checks now and then every few hours.
@@ -66,8 +81,10 @@ func (s *Server) RunUpdateChecks(ctx context.Context) {
 		if err := s.checkUpdates(ctx); err != nil {
 			s.log.Warn("update check", "err", err)
 		} else if v := s.updates.snapshot(); s.cfg.AutoUpdate && s.canUpdate() && newer(v.latest, s.cfg.Version) {
-			s.log.Info("auto-update starting", "from", s.cfg.Version, "to", v.latest)
-			if err := s.updater.StartUpdater(ctx, s.cfg.InstallDir, v.latest, s.cfg.UpdateRepo); err != nil {
+			if s.updater.UpdateFailed(ctx, s.cfg.Name, v.latest) {
+				// Rolled back: wait for a newer release, or Update in the dashboard.
+				s.log.Warn("auto-update skipped: the last update to this release failed", "to", v.latest)
+			} else if err := s.startUpdater(ctx, v.latest); err != nil {
 				s.log.Error("auto-update", "err", err)
 			}
 		}
@@ -128,15 +145,22 @@ func (s *Server) updateView(ctx context.Context) updateView {
 	v := updateView{
 		Current: s.cfg.Version, Latest: st.latest, Available: newer(st.latest, s.cfg.Version),
 		Notes: st.notes, ReleaseURL: st.url, Auto: s.cfg.AutoUpdate, CanUpdate: s.canUpdate(), Error: st.lastError,
+		Install: "server",
+	}
+	if s.cfg.Local {
+		v.Install = "local"
 	}
 	if !st.checked.IsZero() {
 		v.CheckedAt = &st.checked
 	}
 	if s.updater != nil {
-		v.Updating = s.updater.UpdaterRunning(ctx)
+		v.Updating = s.updater.UpdaterRunning(ctx, s.cfg.Name)
 	}
-	if v.Available && !v.CanUpdate {
+	if v.Available {
 		v.ManualSteps = "cd <install dir> && sh upgrade.sh " + st.latest
+		if s.cfg.Local {
+			v.ManualSteps = "flobase update"
+		}
 	}
 	return v
 }
@@ -160,10 +184,10 @@ func (s *Server) updateNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !v.CanUpdate {
-		writeError(w, http.StatusConflict, "This FloBase was not installed with the install script, so update it by hand: "+v.ManualSteps)
+		writeError(w, http.StatusConflict, "This FloBase cannot update itself, so update it by hand: "+v.ManualSteps)
 		return
 	}
-	if err := s.updater.StartUpdater(r.Context(), s.cfg.InstallDir, v.Latest, s.cfg.UpdateRepo); err != nil {
+	if err := s.startUpdater(r.Context(), v.Latest); err != nil {
 		writeError(w, http.StatusConflict, "Could not start the update: "+err.Error())
 		return
 	}
