@@ -55,7 +55,8 @@ func (s *Server) EnsureOffsiteAll(ctx context.Context) {
 
 // offsiteStatus reads the sync container's last report.
 func (s *Server) offsiteStatus(ctx context.Context, ref string) *offsiteStatus {
-	st := &offsiteStatus{Enabled: s.prov.OffsiteEnabled(), Bucket: s.cfg.OffsiteBucket, Encrypted: s.cfg.OffsiteEncrypted}
+	bucket, encrypted, enabled := s.prov.OffsiteInfo()
+	st := &offsiteStatus{Enabled: enabled, Bucket: bucket, Encrypted: encrypted}
 	if !st.Enabled {
 		return st
 	}
@@ -98,13 +99,14 @@ func (s *Server) listOffsite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "Could not read off-site storage: "+err.Error())
 		return
 	}
+	bucket, encrypted, _ := s.prov.OffsiteInfo()
 	out := make([]offsiteProjectView, 0, len(list))
 	for _, p := range list {
 		_, err := s.store.Project(r.Context(), p.Ref)
 		out = append(out, offsiteProjectView{OffsiteProject: p, Here: err == nil})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled": true, "bucket": s.cfg.OffsiteBucket, "encrypted": s.cfg.OffsiteEncrypted, "projects": out,
+		"enabled": true, "bucket": bucket, "encrypted": encrypted, "projects": out,
 	})
 }
 

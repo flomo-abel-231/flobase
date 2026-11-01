@@ -154,6 +154,42 @@ export interface Updates {
   manual_steps?: string;
 }
 
+export interface StorageLocation {
+  id: string;
+  name: string;
+  provider: string;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  prefix: string;
+  access_key_hint: string;
+  encrypted: boolean;
+  active: boolean;
+  from_env: boolean;
+  created_at?: string;
+}
+
+export interface StorageInput {
+  name: string;
+  provider: string;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  prefix: string;
+  access_key: string;
+  secret_key: string;
+  encryption_key: string;
+  activate?: boolean;
+}
+
+export interface DeleteCheck {
+  has_data: boolean;
+  summary: string;
+  cloud_backup: boolean;
+  bucket?: string;
+  engine_backup: boolean;
+}
+
 export interface NewColumn {
   name: string;
   type: string;
@@ -232,7 +268,15 @@ export const api = {
   project: (ref: string) => request<Project>("GET", `/projects/${ref}`),
   createProject: (input: { name: string; engine: EngineId; region: string; plan: string }) =>
     request<Project>("POST", "/projects", input),
-  deleteProject: (ref: string) => request<void>("DELETE", `/projects/${ref}`),
+  deleteProject: (ref: string, confirm: string) => request<void>("DELETE", `/projects/${ref}`, { confirm }),
+  deleteCheck: (ref: string) => request<DeleteCheck>("GET", `/projects/${ref}/delete-check`),
+  backupToCloud: (ref: string) => request<{ bucket: string; backup: string; finished: string }>("POST", `/projects/${ref}/backups/offsite`),
+  storages: () => request<{ locations: StorageLocation[]; env_managed: boolean }>("GET", "/storages"),
+  testStorage: (input: StorageInput) => request<{ result: string }>("POST", "/storages/test", input),
+  createStorage: (input: StorageInput) => request<{ id: string }>("POST", "/storages", input),
+  activateStorage: (id: string) => request<void>("POST", `/storages/${id}/activate`),
+  deactivateStorage: () => request<void>("POST", "/storages/deactivate"),
+  deleteStorage: (id: string) => request<void>("DELETE", `/storages/${id}`),
   sql: (ref: string, query: string) => request<QueryResponse>("POST", `/projects/${ref}/sql`, { query }),
   tables: (ref: string) => request<TableInfo[]>("GET", `/projects/${ref}/tables`),
   createTable: (ref: string, input: { name: string; rls: boolean; columns: NewColumn[] }) =>

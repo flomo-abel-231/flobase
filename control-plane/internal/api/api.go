@@ -26,9 +26,9 @@ type Config struct {
 	APIToken   string
 	Markup     float64
 	GatewayURL string // public base URL of the API gateway, e.g. http://localhost:28471
-	// Shown in the dashboard; credentials stay in the provisioner.
-	OffsiteBucket    string
-	OffsiteEncrypted bool
+	// EnvOffsite is off-site storage set in .env; it takes precedence over
+	// locations added in the dashboard (see storage.go).
+	EnvOffsite *provisioner.Offsite
 	// Self-update: the GitHub repository releases come from, whether to
 	// install them without asking, and where the install script put FloBase
 	// on the host (empty = not installed by it, so no self-update).
@@ -68,6 +68,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /api/v1/projects/{ref}", s.auth(s.deleteProject))
 	s.dataRoutes(mux)
 	s.backupRoutes(mux)
+	s.storageRoutes(mux)
+	s.deletionRoutes(mux)
 	s.updateRoutes(mux)
 	return mux
 }
@@ -319,6 +321,16 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.jobs.restoring(p.Ref) {
 		writeError(w, http.StatusConflict, "A restore from this project is running. Delete it once the restore finishes.")
+		return
+	}
+	// The project's name, typed by the person deleting it, guards against
+	// deleting the wrong project.
+	var req struct {
+		Confirm string `json:"confirm"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&req)
+	if strings.TrimSpace(req.Confirm) != p.Name {
+		writeError(w, http.StatusBadRequest, "Type the project's name to confirm deleting it.")
 		return
 	}
 	if err := s.store.SetStatus(r.Context(), p.Ref, store.StatusDeleting, ""); err != nil {
