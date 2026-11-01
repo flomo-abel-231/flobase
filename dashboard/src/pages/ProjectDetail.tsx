@@ -20,7 +20,17 @@ const tabs: { id: string; label: string; engines: Project["engine"][] }[] = [
   { id: "logs", label: "Logs", engines: ["postgres", "mysql", "mongodb"] },
 ];
 
-export function ProjectDetail({ projectRef, tab, section }: { projectRef: string; tab: string; section?: string }) {
+export function ProjectDetail({
+  projectRef,
+  tab,
+  section,
+  platformAdmin,
+}: {
+  projectRef: string;
+  tab: string;
+  section?: string;
+  platformAdmin: boolean;
+}) {
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState("");
 
@@ -106,7 +116,7 @@ export function ProjectDetail({ projectRef, tab, section }: { projectRef: string
       {active && current.id === "sql" && <SqlEditor project={project} />}
       {active && current.id === "tables" && <TableEditor project={project} />}
       {active && current.id === "auth" && <AuthUsers project={project} />}
-      {active && current.id === "backups" && <Backups project={project} />}
+      {active && current.id === "backups" && <Backups project={project} platformAdmin={platformAdmin} />}
       {active && current.id === "logs" && <Logs project={project} />}
     </div>
   );

@@ -117,6 +117,16 @@ func run(log *slog.Logger) error {
 		InstallDir: os.Getenv("FLOBASE_INSTALL_DIR"),
 		Local:      os.Getenv("FLOBASE_INSTALL_KIND") == "local",
 		OwnerEmail: strings.TrimSpace(os.Getenv("FLOBASE_OWNER_EMAIL")),
+		Mail: api.SMTP{
+			Host: os.Getenv("FLOBASE_SMTP_HOST"), User: os.Getenv("FLOBASE_SMTP_USER"),
+			Password: os.Getenv("FLOBASE_SMTP_PASSWORD"), From: os.Getenv("FLOBASE_SMTP_FROM"),
+		},
+		DashboardURL: os.Getenv("FLOBASE_DASHBOARD_URL"),
+	}
+	if v := os.Getenv("FLOBASE_SMTP_PORT"); v != "" {
+		if cfg.Mail.Port, err = strconv.Atoi(v); err != nil {
+			return errors.New("FLOBASE_SMTP_PORT must be a number such as 587")
+		}
 	}
 	// The updater needs the install's Compose project and container names,
 	// which Compose put on this container.
@@ -155,6 +165,8 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	srv.StartFirewall(ctx)
+	srv.StartExpiry(ctx)
+	srv.StartUsage(ctx)
 	deleting, err := st.Deleting(ctx)
 	if err != nil {
 		return err

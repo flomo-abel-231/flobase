@@ -24,6 +24,8 @@ export interface Plan {
   markup?: number;
   description: string;
   available: boolean;
+  // Set on the cloud's Free plan: projects are deleted this long after creation.
+  deleted_after_days?: number;
 }
 
 export interface Region {
@@ -85,6 +87,10 @@ export interface Project {
   status_detail: string;
   // The database serves TLS; connection strings ask for it.
   tls: boolean;
+  // When a free cloud project is deleted.
+  expires_at?: string;
+  // The database's size when last measured.
+  size_bytes?: number;
   created_at: string;
   updated_at: string;
   connection?: {
@@ -110,6 +116,35 @@ export interface QueryResult {
 export interface QueryResponse {
   results: QueryResult[];
   duration_ms: number;
+}
+
+export interface StorageProject {
+  ref: string;
+  name: string;
+  engine: EngineId;
+  plan: string;
+  status: Status;
+  plan_mb: number;
+  used_bytes: number | null;
+  expires_at?: string;
+}
+
+export interface WorkspaceStorage {
+  limit_mb: number | null;
+  allocated_mb: number;
+  used_bytes: number;
+  projects: StorageProject[];
+}
+
+export interface AdminWorkspace {
+  id: string;
+  name: string;
+  owner_email: string;
+  limit_mb: number | null;
+  created_at: string;
+  projects: number;
+  allocated_mb: number;
+  used_bytes: number;
 }
 
 export interface SchemaInfo {
@@ -568,6 +603,11 @@ export const api = {
   setRole: (id: string, role: Invite["role"]) => request<void>("PATCH", `/team/users/${id}`, { role }),
   removeUser: (id: string) => request<void>("DELETE", `/team/users/${id}`),
   catalog: () => request<Catalog>("GET", "/catalog"),
+  publicPlans: () => request<{ plans: Plan[]; billing: boolean }>("GET", "/plans"),
+  storage: () => request<WorkspaceStorage>("GET", "/storage"),
+  adminWorkspaces: () => request<AdminWorkspace[]>("GET", "/admin/workspaces"),
+  setWorkspaceStorage: (id: string, limit_mb: number | null) => request<AdminWorkspace[]>("PUT", `/admin/workspaces/${id}/storage`, { limit_mb }),
+  changePlan: (ref: string, plan: string) => request<Project>("PUT", `/projects/${ref}/plan`, { plan }),
   projects: () => request<Project[]>("GET", "/projects"),
   project: (ref: string) => request<Project>("GET", `/projects/${ref}`),
   createProject: (input: { name: string; engine: EngineId; region: string; plan: string }) =>
@@ -658,6 +698,24 @@ export const engineLabel: Record<EngineId, string> = {
   mysql: "MySQL",
   mongodb: "MongoDB-compatible",
 };
+
+// formatMB shows a plan's size: 500 MB, 5 GB.
+export function formatMB(mb: number): string {
+  return mb >= 1000 ? `${+(mb / 1000).toFixed(1)} GB` : `${mb} MB`;
+}
+
+// formatBytes shows a measured size.
+export function formatBytes(n: number | null | undefined): string {
+  if (n == null) return "—";
+  if (n < 1e6) return `${Math.max(0, Math.round(n / 1e3))} KB`;
+  if (n < 1e9) return `${+(n / 1e6).toFixed(1)} MB`;
+  return `${+(n / 1e9).toFixed(2)} GB`;
+}
+
+// daysUntil rounds up, as the server's warnings do.
+export function daysUntil(iso: string): number {
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+}
 
 export function formatPrice(usd: number): string {
   if (usd === 0) return "$0";

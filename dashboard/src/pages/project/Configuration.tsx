@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { api, downloadCA, engineLabel, type DeleteCheck, type Project } from "../../api";
+import { api, daysUntil, downloadCA, engineLabel, formatBytes, formatMB, formatPrice, type Catalog, type DeleteCheck, type Project } from "../../api";
 import { Button, Card, CopyField, Field, Input, Notice } from "../../ui";
 import { navigate } from "../../App";
 
@@ -15,6 +15,7 @@ const clientHint: Record<Project["engine"], string> = {
 export function Configuration({ project, section }: { project: Project; section?: string }) {
   const sections = [
     { id: "general", label: "General" },
+    { id: "plan", label: "Plan" },
     { id: "connect", label: "Connect" },
     { id: "network", label: "Network" },
     ...(project.api_url ? [{ id: "api", label: "API" }] : []),
@@ -40,6 +41,7 @@ export function Configuration({ project, section }: { project: Project; section?
       </nav>
       <div className="min-w-0 max-w-3xl">
         {current.id === "general" && <General project={project} />}
+        {current.id === "plan" && <PlanSection project={project} />}
         {current.id === "connect" && <Connect project={project} />}
         {current.id === "network" && <Network project={project} />}
         {current.id === "api" && <Api project={project} />}
@@ -69,7 +71,16 @@ function General({ project }: { project: Project }) {
     ["Region", project.region],
     ["Project ref", <span className="font-mono">{project.ref}</span>],
     ["Created", new Date(project.created_at).toLocaleString()],
+    ["Database size", project.size_bytes == null ? "Not measured yet" : formatBytes(project.size_bytes)],
   ];
+  if (project.expires_at) {
+    rows.push([
+      "Deleted on",
+      <span className="text-warning">
+        {new Date(project.expires_at).toLocaleDateString()} (in {Math.max(daysUntil(project.expires_at), 0)} days, Free plan)
+      </span>,
+    ]);
+  }
   return (
     <Section title="General">
       <Card className="divide-y divide-border">
@@ -80,6 +91,97 @@ function General({ project }: { project: Project }) {
           </div>
         ))}
       </Card>
+    </Section>
+  );
+}
+
+// PlanSection moves the project to another plan. The database restarts
+// with the new plan's CPU and memory and keeps its data.
+function PlanSection({ project }: { project: Project }) {
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [choice, setChoice] = useState(project.plan);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState("");
+
+  useEffect(() => {
+    api.catalog().then(setCatalog).catch((e) => setError(e.message));
+  }, []);
+  useEffect(() => setChoice(project.plan), [project.plan]);
+
+  const prices = catalog?.regions.find((r) => r.id === project.region)?.prices;
+  const target = catalog?.plans.find((p) => p.id === choice);
+
+  const change = async () => {
+    if (!target) return;
+    const toFree = target.deleted_after_days
+      ? ` Free projects are deleted ${target.deleted_after_days} days after moving to Free, with their data.`
+      : "";
+    if (!window.confirm(`Move ${project.name} to ${target.name}? The database restarts, which takes a few seconds.${toFree}`)) return;
+    setBusy(true);
+    setError("");
+    setDone("");
+    try {
+      await api.changePlan(project.ref, target.id);
+      setDone(`${project.name} is on ${target.name} now.`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (project.status !== "active") return <p className="body-sm text-ink-muted">The plan can be changed once the project is active.</p>;
+  return (
+    <Section title="Plan" subtitle="Move this project to a bigger or smaller plan. Its database restarts with the new size and keeps its data.">
+      {catalog && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {catalog.plans.map((p) => {
+            const isCurrent = p.id === project.plan;
+            const selectable = p.available || isCurrent;
+            return (
+              <label
+                key={p.id}
+                className={`flex cursor-pointer flex-col gap-1 rounded-md border p-3 transition ${
+                  choice === p.id ? "border-brand bg-brand-subtle" : "border-border-strong bg-surface-raised hover:bg-surface-sunken"
+                } ${selectable ? "" : "cursor-not-allowed opacity-50"}`}
+              >
+                <input
+                  type="radio"
+                  name="plan"
+                  className="sr-only"
+                  value={p.id}
+                  checked={choice === p.id}
+                  disabled={!selectable}
+                  onChange={() => setChoice(p.id)}
+                />
+                <span className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-ink">{p.name}</span>
+                  {isCurrent && <span className="rounded-full bg-brand-subtle px-2 text-[11px] font-medium text-brand">Current</span>}
+                </span>
+                {catalog.billing && (
+                  <span className="metric text-ink">
+                    {formatPrice(prices?.[p.id] ?? p.price_usd)}
+                    <span className="body-sm text-ink-muted"> /mo</span>
+                  </span>
+                )}
+                <span className="body-sm text-ink-muted">
+                  {p.cpu} vCPU · {p.memory_mb >= 1024 ? `${p.memory_mb / 1024} GB` : `${p.memory_mb} MB`} RAM ·{" "}
+                  {formatMB(Math.round(p.disk_gb * 1000))} database
+                </span>
+                {!selectable && <span className="body-sm text-ink-muted">Coming soon</span>}
+              </label>
+            );
+          })}
+        </div>
+      )}
+      {error && <Notice tone="danger">{error}</Notice>}
+      {done && <p className="body-sm text-success">{done}</p>}
+      <div>
+        <Button variant="primary" disabled={busy || !target || choice === project.plan} onClick={change}>
+          {busy ? "Changing plan…" : target && choice !== project.plan ? `Move to ${target.name}` : "Change plan"}
+        </Button>
+      </div>
     </Section>
   );
 }

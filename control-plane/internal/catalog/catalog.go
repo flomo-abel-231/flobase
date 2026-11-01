@@ -36,7 +36,7 @@ type Plan struct {
 	Name        string  `json:"name"`
 	CPU         float64 `json:"cpu"`
 	MemoryMB    int     `json:"memory_mb"`
-	DiskGB      int     `json:"disk_gb"`
+	DiskGB      float64 `json:"disk_gb"`
 	FilesGB     int     `json:"files_gb"`
 	EgressGB    int     `json:"egress_gb"`
 	Backups     string  `json:"backups"`
@@ -46,7 +46,7 @@ type Plan struct {
 }
 
 var Plans = []Plan{
-	{ID: "free", Name: "Free", CPU: 0.25, MemoryMB: 256, DiskGB: 1, FilesGB: 1, EgressGB: 5, Backups: "None", EstCost: 1, Price: 0, Description: "Shared CPU. Pauses after 7 idle days."},
+	{ID: "free", Name: "Free", CPU: 0.25, MemoryMB: 256, DiskGB: 0.5, FilesGB: 1, EgressGB: 5, Backups: "None", EstCost: 1, Price: 0, Description: "Shared CPU with a 500 MB database, for trying FloBase."},
 	{ID: "starter", Name: "Starter", CPU: 0.5, MemoryMB: 1024, DiskGB: 5, FilesGB: 10, EgressGB: 25, Backups: "Daily", EstCost: 2.5, Price: 3.99, Description: "Shared 0.5 vCPU for side projects."},
 	{ID: "pro", Name: "Pro", CPU: 1, MemoryMB: 2048, DiskGB: 20, FilesGB: 50, EgressGB: 100, Backups: "7-day point-in-time", EstCost: 12, Price: 19, Description: "1 dedicated vCPU for production apps."},
 	{ID: "business", Name: "Business", CPU: 2, MemoryMB: 8192, DiskGB: 100, FilesGB: 250, EgressGB: 250, Backups: "14-day point-in-time", EstCost: 75, Price: 120, Description: "2 vCPU with a high-availability standby."},

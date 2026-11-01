@@ -110,10 +110,12 @@ cd /data/flobase && docker compose up -d
 | --- | --- |
 | `FLOBASE_API_TOKEN` | Owner-level token for the API, the CLI and creating the first account. Anyone with it controls the server's Docker; keep it secret. |
 | `FLOBASE_PLATFORM_DB_PASSWORD` | Password of FloBase's own database. Do not change it after install. |
-| `FLOBASE_MODE` | `self-hosted`, the default and the supported mode. (`cloud`, with public sign-up and prices, is kept for later and not offered.) |
+| `FLOBASE_MODE` | `self-hosted`, the default. `cloud` runs a hosted service: a public home page with plans, open sign-up, prices, and free projects deleted after 30 days. |
 | `FLOBASE_OWNER_EMAIL` | Your email: the owner account can be created with it, without the API token. |
 | `FLOBASE_PUBLIC_HOST` | Host your apps use for direct database connections. |
 | `FLOBASE_GATEWAY_URL` | Public URL of the project APIs, shown to developers and used by auth emails. |
+| `FLOBASE_DASHBOARD_URL` | Public URL of the dashboard, for links in FloBase's emails. |
+| `FLOBASE_SMTP_HOST`, `FLOBASE_SMTP_PORT`, `FLOBASE_SMTP_USER`, `FLOBASE_SMTP_PASSWORD`, `FLOBASE_SMTP_FROM` | Mail server for FloBase's own emails, such as the cloud's free-plan deletion warnings. Port 465 uses TLS from the start; other ports use STARTTLS when offered. Without it, warnings appear in the dashboard only. |
 | `FLOBASE_PORT`, `FLOBASE_GATEWAY_PORT` | Host ports for the dashboard and the project APIs. |
 | `FLOBASE_AUTO_UPDATE` | `true` to install new releases automatically. |
 | `FLOBASE_VERSION` | The running release. Set by the installer and updater; change it only through `upgrade.sh`. |
