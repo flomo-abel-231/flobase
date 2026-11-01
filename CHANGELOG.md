@@ -2,7 +2,7 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.9.4 — 2026-11-01
 
 - **Cloud mode: paid plans stay closed until payments are set up.** With `FLOBASE_MODE=cloud`, Starter, Pro and Business show "Coming soon" on the new-project form and the API turns them down, so people who sign up can start on Free only. The platform's owner can still use every plan. Self-hosted FloBase is unchanged.
 - The **Support FloBase** page and its sidebar link appear only on self-hosted FloBase, not on the hosted cloud.
