@@ -2,7 +2,7 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.9.1 — 2026-11-01
 
 - **Network restrictions:** allowing the server's own IP address now also lets in apps running on that server (Coolify or Docker apps), which connect from Docker's internal networks rather than from the server's address. The Network page shows the server's address with an **Add this server** button, and says whether apps on the server can connect. Without the server's address on the list, apps on it stay blocked like everyone else.
 
