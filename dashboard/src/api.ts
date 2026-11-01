@@ -540,6 +540,9 @@ export const api = {
     request<Project>("POST", "/projects", input),
   deleteProject: (ref: string, confirm: string) => request<void>("DELETE", `/projects/${ref}`, { confirm }),
   resetPassword: (ref: string) => request<Project>("POST", `/projects/${ref}/password`),
+  network: (ref: string) => request<{ allowed: string[]; your_ip: string }>("GET", `/projects/${ref}/network`),
+  setNetwork: (ref: string, allowed: string[]) =>
+    request<{ allowed: string[]; your_ip: string }>("PUT", `/projects/${ref}/network`, { allowed }),
   deleteCheck: (ref: string) => request<DeleteCheck>("GET", `/projects/${ref}/delete-check`),
   backupToCloud: (ref: string) => request<{ bucket: string; backup: string; finished: string }>("POST", `/projects/${ref}/backups/offsite`),
   regions: () => request<RegionDetail[]>("GET", "/regions"),

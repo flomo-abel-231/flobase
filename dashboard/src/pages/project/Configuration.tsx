@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api, downloadCA, engineLabel, type DeleteCheck, type Project } from "../../api";
 import { Button, Card, CopyField, Field, Input, Notice } from "../../ui";
 import { navigate } from "../../App";
@@ -16,6 +16,7 @@ export function Configuration({ project, section }: { project: Project; section?
   const sections = [
     { id: "general", label: "General" },
     { id: "connect", label: "Connect" },
+    { id: "network", label: "Network" },
     ...(project.api_url ? [{ id: "api", label: "API" }] : []),
     { id: "danger", label: "Danger zone" },
   ];
@@ -40,6 +41,7 @@ export function Configuration({ project, section }: { project: Project; section?
       <div className="min-w-0 max-w-3xl">
         {current.id === "general" && <General project={project} />}
         {current.id === "connect" && <Connect project={project} />}
+        {current.id === "network" && <Network project={project} />}
         {current.id === "api" && <Api project={project} />}
         {current.id === "danger" && <Danger project={project} />}
       </div>
@@ -152,6 +154,123 @@ function Encryption({ project }: { project: Project }) {
       )}
       {error && <Notice tone="danger">{error}</Notice>}
     </div>
+  );
+}
+
+// Network limits who can reach the project's database ports, like a
+// firewall in front of this project only.
+function Network({ project }: { project: Project }) {
+  const [saved, setSaved] = useState<string[] | null>(null);
+  const [list, setList] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
+  const [yourIP, setYourIP] = useState("");
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api
+      .network(project.ref)
+      .then((n) => {
+        setSaved(n.allowed);
+        setList(n.allowed);
+        setYourIP(n.your_ip);
+      })
+      .catch((e) => setError((e as Error).message));
+  }, [project.ref]);
+
+  const add = (v: string) => {
+    v = v.trim();
+    if (v && !list.includes(v)) setList([...list, v]);
+    setDraft("");
+    setNote("");
+  };
+  const save = async () => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const n = await api.setNetwork(project.ref, list);
+      setSaved(n.allowed);
+      setList(n.allowed);
+      setNote(n.allowed.length ? "Saved. Only these addresses can reach the database now." : "Saved. Anyone can reach the database again.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (saved === null) return error ? <Notice tone="danger">{error}</Notice> : null;
+  const changed = JSON.stringify(list) !== JSON.stringify(saved);
+
+  return (
+    <Section
+      title="Network restrictions"
+      subtitle="Choose which IP addresses can connect to this project's database and pooler. It only affects this project: the rest of the server, the dashboard and the project's REST and auth APIs are unchanged."
+    >
+      <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-3">
+        <p className="body-sm flex items-center gap-2 text-ink">
+          <span className={`size-2 rounded-full ${saved.length ? "bg-success" : "bg-warning"}`} aria-hidden />
+          {saved.length
+            ? `Restricted: only ${saved.length} address${saved.length === 1 ? "" : "es or ranges"} can connect.`
+            : "Open: any address can try to connect (the password is still required)."}
+        </p>
+      </div>
+      {list.length > 0 && (
+        <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface-raised">
+          {list.map((c) => (
+            <li key={c} className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="code text-ink">{c}</span>
+              <Button onClick={() => setList(list.filter((x) => x !== c))} aria-label={`Remove ${c}`}>
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          add(draft);
+        }}
+      >
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Field label="Allow an address or range">
+            <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="203.0.113.7 or 203.0.113.0/24" spellCheck={false} />
+          </Field>
+        </div>
+        <Button type="submit" disabled={!draft.trim()}>
+          Add
+        </Button>
+        {yourIP && !list.some((c) => c.startsWith(yourIP + "/") || c === yourIP) && (
+          <Button type="button" onClick={() => add(yourIP)}>
+            Add my IP ({yourIP})
+          </Button>
+        )}
+      </form>
+      <p className="body-sm text-ink-muted">
+        Add your app servers' addresses and your own. Leave the list empty to allow everyone. Connections already open are not cut
+        when you add a restriction; new ones from other addresses are refused.
+      </p>
+      {error && <Notice tone="danger">{error}</Notice>}
+      {note && (
+        <p className="body-sm flex items-center gap-2 text-success">
+          <span className="size-2 rounded-full bg-success" aria-hidden />
+          {note}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button variant="primary" onClick={save} disabled={busy || !changed}>
+          {busy ? "Applying…" : "Save"}
+        </Button>
+        {changed && (
+          <Button onClick={() => setList(saved)} disabled={busy}>
+            Discard changes
+          </Button>
+        )}
+      </div>
+    </Section>
   );
 }
 

@@ -110,6 +110,15 @@ func (r *Router) Recreate(ctx context.Context, s Spec) error {
 	return d.Recreate(ctx, s)
 }
 
+// ApplyFirewall sets the network restrictions on a region's host.
+func (r *Router) ApplyFirewall(ctx context.Context, region string, rules []PortRule) error {
+	d, err := r.Region(region)
+	if err != nil {
+		return err
+	}
+	return d.ApplyFirewall(ctx, rules)
+}
+
 // SetCA turns on database TLS on every server.
 func (r *Router) SetCA(ca *CA) {
 	r.Docker.SetCA(ca)

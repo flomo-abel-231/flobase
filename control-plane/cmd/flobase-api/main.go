@@ -154,6 +154,7 @@ func run(log *slog.Logger) error {
 	if err := srv.StartTLS(ctx); err != nil {
 		return err
 	}
+	srv.StartFirewall(ctx)
 	deleting, err := st.Deleting(ctx)
 	if err != nil {
 		return err
