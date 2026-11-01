@@ -3,7 +3,6 @@ package api
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -53,6 +52,7 @@ type Server struct {
 	updates updateState
 	// assistant tracks conversations being worked on.
 	assistant assistantState
+	accounts  accountState
 }
 
 func New(cfg Config, st *store.Store, prov provisioner.Provisioner, log *slog.Logger) *Server {
@@ -80,18 +80,8 @@ func (s *Server) Routes() http.Handler {
 	s.deletionRoutes(mux)
 	s.updateRoutes(mux)
 	s.assistantRoutes(mux)
+	s.accountRoutes(mux)
 	return mux
-}
-
-func (s *Server) auth(next http.HandlerFunc) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.APIToken)) != 1 {
-			writeError(w, http.StatusUnauthorized, "Missing or wrong API token.")
-			return
-		}
-		next(w, r)
-	})
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
@@ -100,10 +90,6 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"mode": s.cfg.Mode, "version": s.cfg.Version, "billing": s.billing()})
-}
-
-func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"role": "admin"})
 }
 
 func (s *Server) billing() bool { return s.cfg.Mode == "cloud" }
