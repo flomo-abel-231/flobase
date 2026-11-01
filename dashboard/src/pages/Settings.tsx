@@ -8,7 +8,7 @@ export function Settings({ config }: { config: ServerConfig | null }) {
       <PageHeader title="Settings" subtitle="This FloBase instance and how the dashboard looks to you." />
 
       <Card className="flex flex-col divide-y divide-border">
-        <Row label="Mode" value={config ? (config.mode === "cloud" ? "Cloud: plans with prices, cloud regions" : "Self-hosted: one organisation, no billing") : "—"} />
+        <Row label="Mode" value={config ? (config.mode === "cloud" ? "Cloud: plans with prices, regions on your servers" : "Self-hosted: one organisation, no billing") : "—"} />
         <Row label="Theme" value={<ThemeSwitch />} />
       </Card>
 

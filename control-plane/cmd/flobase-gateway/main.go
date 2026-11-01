@@ -2,7 +2,8 @@
 // services. It routes /project/<ref>/<service>/v1/... to that project's
 // containers, checks the API key and adds CORS, the job Kong or Envoy does
 // in Supabase. It reads project records but never writes them, and the
-// control plane is never on this request path.
+// control plane is never on this request path. Projects on a region server
+// are reached through that server's relay.
 package main
 
 import (
@@ -21,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"flobase/control-plane/internal/provisioner"
 	"flobase/control-plane/internal/store"
 )
 
@@ -43,7 +45,7 @@ func main() {
 	}
 	defer st.Close()
 
-	gw := &gateway{store: st, log: log, cache: map[string]cached{}}
+	gw := &gateway{store: st, log: log, cache: map[string]cached{}, regions: map[string]cachedRegion{}}
 	addr := env("FLOBASE_GATEWAY_ADDR", ":8000")
 	srv := &http.Server{Addr: addr, Handler: gw, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -66,10 +68,19 @@ type cached struct {
 }
 
 type gateway struct {
-	store *store.Store
-	log   *slog.Logger
-	mu    sync.Mutex
-	cache map[string]cached
+	store   *store.Store
+	log     *slog.Logger
+	mu      sync.Mutex
+	cache   map[string]cached
+	regions map[string]cachedRegion
+}
+
+// cachedRegion is how to reach one region server's services: through its
+// relay (see provisioner/relay.go).
+type cachedRegion struct {
+	transport http.RoundTripper
+	cert      string // relay client certificate the transport was built with
+	at        time.Time
 }
 
 // Project records change rarely; a short cache keeps the platform database
@@ -92,6 +103,40 @@ func (g *gateway) project(ctx context.Context, ref string) (store.Project, bool,
 	g.cache[ref] = c
 	g.mu.Unlock()
 	return c.project, c.found, nil
+}
+
+// transport is how requests reach a project's services: directly on the
+// local host, where the gateway joins project networks, or through the
+// relay of the project's region server.
+func (g *gateway) transport(ctx context.Context, region string) (http.RoundTripper, error) {
+	if region == provisioner.LocalRegion {
+		return http.DefaultTransport, nil
+	}
+	g.mu.Lock()
+	c, ok := g.regions[region]
+	g.mu.Unlock()
+	if ok && time.Since(c.at) < cacheFor {
+		return c.transport, nil
+	}
+	v, err := g.store.RegionServer(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || c.cert != v.RelayClientCert {
+		relay, err := provisioner.NewRelay(provisioner.RelayConfig{
+			Port: v.RelayPort, ServerCert: v.RelayServerCert, ClientCert: v.RelayClientCert, ClientKey: v.RelayClientKey,
+		}, v.PublicHost)
+		if err != nil {
+			return nil, err
+		}
+		c.transport = &http.Transport{DialContext: relay.DialContext, MaxIdleConnsPerHost: 32, IdleConnTimeout: 90 * time.Second}
+		c.cert = v.RelayClientCert
+	}
+	c.at = time.Now()
+	g.mu.Lock()
+	g.regions[region] = c
+	g.mu.Unlock()
+	return c.transport, nil
 }
 
 // Auth routes a browser opens from an email or OAuth redirect carry no key.
@@ -163,7 +208,14 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	u, _ := url.Parse(target)
 	u.RawQuery = r.URL.RawQuery
+	transport, err := g.transport(r.Context(), p.Region)
+	if err != nil {
+		g.log.Error("region lookup", "ref", ref, "region", p.Region, "err", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"message": "The project's region cannot be reached right now."})
+		return
+	}
 	proxy := &httputil.ReverseProxy{
+		Transport: transport,
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL = u
 			pr.Out.Host = u.Host
