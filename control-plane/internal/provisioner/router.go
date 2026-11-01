@@ -35,6 +35,9 @@ func (r *Router) SetServer(region string, d *Docker) {
 		return
 	}
 	d.SetOffsite(r.Docker.currentOffsite())
+	r.Docker.offsiteMu.RLock()
+	d.SetCA(r.Docker.ca)
+	r.Docker.offsiteMu.RUnlock()
 	r.servers[region] = d
 }
 
@@ -105,6 +108,24 @@ func (r *Router) Recreate(ctx context.Context, s Spec) error {
 		return err
 	}
 	return d.Recreate(ctx, s)
+}
+
+// SetCA turns on database TLS on every server.
+func (r *Router) SetCA(ca *CA) {
+	r.Docker.SetCA(ca)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, d := range r.servers {
+		d.SetCA(ca)
+	}
+}
+
+func (r *Router) EnsureTLS(ctx context.Context, s Spec) (bool, error) {
+	d, err := r.project(ctx, s.Ref)
+	if err != nil {
+		return false, err
+	}
+	return d.EnsureTLS(ctx, s)
 }
 
 func (r *Router) Logs(ctx context.Context, ref, service string, lines int) (string, error) {

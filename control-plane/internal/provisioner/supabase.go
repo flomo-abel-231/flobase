@@ -65,8 +65,11 @@ func postgresContainers(s Spec) []container {
 			mounts: append([]mount{data, config, backups}, sources...),
 		}
 	}
-	return []container{
-		first,
+	all := []container{first}
+	if s.TLSCert != "" {
+		all = append(all, tlsContainer(s, postgresImage, config))
+	}
+	return append(all, []container{
 		{
 			suffix: "db",
 			image:  postgresImage,
@@ -86,12 +89,13 @@ func postgresContainers(s Spec) []container {
 		{
 			suffix: "pooler",
 			image:  poolerImage,
-			env: []string{
+			env: append([]string{
 				"DATABASE_URL=postgres://postgres:" + s.Password + "@" + db + "/postgres",
 				"LISTEN_PORT=6432", "POOL_MODE=transaction", "AUTH_TYPE=scram-sha-256",
 				"MAX_CLIENT_CONN=" + maxConn, "DEFAULT_POOL_SIZE=20",
-			},
-			port: 6432,
+			}, poolerTLSEnv(s)...),
+			port:   6432,
+			mounts: tlsMounts(s),
 		},
 		{
 			suffix: "rest",
@@ -125,7 +129,7 @@ func postgresContainers(s Spec) []container {
 			},
 			healthcheck: []string{"CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"},
 		},
-	}
+	}...)
 }
 
 // setupScript prepares a new project's volumes before Postgres first starts:
