@@ -2,6 +2,11 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## 0.2.1 — 2026-11-01
+
+- FloBase Desktop on macOS finds an installed Docker Desktop or OrbStack. Apps opened from Finder do not get the terminal's PATH, so 0.2.0 installed its own engine even when Docker Desktop was there.
+- FloBase checks that the dashboard on its port is its own, signing in with its token. When another program or FloBase holds port 8080 or 8000, it now says so instead of opening that program's page, where the sign-in link was rejected.
+
 ## 0.2.0 — 2026-11-01
 
 - FloBase Desktop for macOS (one app for Intel and Apple silicon M1–M4) and Windows (x64 installer, ARM64 app).

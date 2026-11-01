@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -340,17 +341,56 @@ func (m *Manager) DashboardURL(signIn bool) string {
 	return u
 }
 
+// healthy reports whether this FloBase answers on its port: it signs in
+// with its own token, so another FloBase or program on the same port does
+// not count.
 func (m *Manager) healthy(ctx context.Context) bool {
-	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost:"+m.port()+"/api/v1/health", nil)
+	return m.answer(ctx) == answerOurs
+}
+
+const (
+	answerNone  = iota // nothing listens on the port
+	answerOurs         // this FloBase, signed in with its token
+	answerOther        // something else holds the port
+)
+
+func (m *Manager) answer(ctx context.Context) int {
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://localhost:"+m.port()+"/api/v1/me", nil)
 	if err != nil {
-		return false
+		return answerNone
 	}
+	req.Header.Set("Authorization", "Bearer "+m.Env()["FLOBASE_API_TOKEN"])
 	resp, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
 	if err != nil {
-		return false
+		return answerNone
 	}
 	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	if resp.StatusCode == http.StatusOK {
+		return answerOurs
+	}
+	return answerOther
+}
+
+// portsFree checks that nothing else holds the dashboard and API ports, so
+// FloBase does not start behind another program and open its page.
+func (m *Manager) portsFree(ctx context.Context) error {
+	if m.answer(ctx) == answerOurs {
+		return nil
+	}
+	env := m.Env()
+	ports := map[string]string{"FLOBASE_PORT": m.port(), "FLOBASE_GATEWAY_PORT": env["FLOBASE_GATEWAY_PORT"]}
+	for key, port := range ports {
+		if port == "" {
+			continue
+		}
+		conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "tcp", "127.0.0.1:"+port)
+		if err != nil {
+			continue
+		}
+		conn.Close()
+		return fmt.Errorf("port %s is used by another program, perhaps another FloBase (a server install or a source checkout). Stop it, or pick another port with %s in %s and start again", port, key, m.envPath())
+	}
+	return nil
 }
 
 // otherStack names another FloBase using this Docker engine (a server
@@ -411,6 +451,9 @@ func (m *Manager) Start(ctx context.Context) error {
 		if err := m.install(ctx, version); err != nil {
 			return err
 		}
+	}
+	if err := m.portsFree(ctx); err != nil {
+		return err
 	}
 	if other := m.otherStack(ctx); other != "" {
 		return fmt.Errorf("another FloBase (Compose project %q) is running on this Docker engine and uses the same ports; stop it first with: docker compose -p %s stop", other, other)
