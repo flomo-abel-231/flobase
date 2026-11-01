@@ -33,14 +33,6 @@ function LinkButton({ href, primary, children }: { href: string; primary?: boole
   );
 }
 
-function Soon({ children }: { children: ReactNode }) {
-  return (
-    <span className="inline-flex h-8 items-center rounded-lg border border-dashed border-border px-3 text-[13px] text-ink-muted">
-      {children} · coming soon
-    </span>
-  );
-}
-
 export function Support() {
   return (
     <div className="flex max-w-5xl flex-col gap-6">
@@ -49,38 +41,38 @@ export function Support() {
         subtitle="FloBase is free, open-source software you host yourself, under the Apache 2.0 licence. There are no paid plans: donations, grants and support contracts pay for its development."
       />
 
-      <Card className="flex flex-col gap-4 border-brand/40 bg-brand-subtle/40 p-6 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-[18px] font-semibold tracking-tight text-ink">Donate</h2>
-          <p className="body-sm max-w-xl text-ink-muted">
-            Give once or every month, any amount: sponsor on GitHub, or pay with a card through Stripe. You choose the amount on their
-            page and get a receipt by email.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+      <Card className="flex flex-col gap-5 border-brand/40 bg-brand-subtle/40 p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-[18px] font-semibold tracking-tight text-ink">Donate</h2>
+            <p className="body-sm max-w-xl text-ink-muted">
+              Pick an amount to give once by card, Apple Pay or other methods through Stripe, or sponsor monthly on GitHub. You get a
+              receipt by email.
+            </p>
+          </div>
           {support.githubSponsors && (
-            <LinkButton href={`https://github.com/sponsors/${support.githubSponsors}`} primary>
-              <svg viewBox="0 0 16 16" className="size-3.5" fill="currentColor" aria-hidden>
-                <path d="M8 14.25s-5.75-3.4-5.75-7.4A3.1 3.1 0 0 1 8 4.9a3.1 3.1 0 0 1 5.75 1.95c0 4-5.75 7.4-5.75 7.4z" />
-              </svg>
-              Sponsor on GitHub
-            </LinkButton>
-          )}
-          {support.stripeMonthly ? (
-            <LinkButton href={support.stripeMonthly} primary={!support.githubSponsors}>
-              Give monthly
-            </LinkButton>
-          ) : (
-            <Soon>Give monthly</Soon>
-          )}
-          {support.stripeOneTime ? (
-            <LinkButton href={support.stripeOneTime} primary={!support.githubSponsors && !support.stripeMonthly}>
-              Give once
-            </LinkButton>
-          ) : (
-            <Soon>Give once</Soon>
+            <div className="flex shrink-0">
+              <LinkButton href={`https://github.com/sponsors/${support.githubSponsors}`}>
+                <svg viewBox="0 0 16 16" className="size-3.5 text-brand" fill="currentColor" aria-hidden>
+                  <path d="M8 14.25s-5.75-3.4-5.75-7.4A3.1 3.1 0 0 1 8 4.9a3.1 3.1 0 0 1 5.75 1.95c0 4-5.75 7.4-5.75 7.4z" />
+                </svg>
+                Sponsor on GitHub
+              </LinkButton>
+            </div>
           )}
         </div>
+        {support.stripeDonations.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <span className="text-[13px] font-medium text-ink">Give once</span>
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+              {support.stripeDonations.map((d) => (
+                <LinkButton key={d.amount} href={d.url} primary={d.amount === 20}>
+                  ${d.amount}
+                </LinkButton>
+              ))}
+            </div>
+          </div>
+        )}
       </Card>
 
       <div className="grid gap-3 md:grid-cols-3">

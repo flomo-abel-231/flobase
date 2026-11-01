@@ -203,7 +203,7 @@ The API token works with the platform owner's rights across every workspace: the
 FloBase has no paid plans, so it depends on people and organizations who find it useful:
 
 - **Sponsor on GitHub** at [github.com/sponsors/flomo-abel-231](https://github.com/sponsors/flomo-abel-231), monthly or once.
-- **Donate** once or monthly by card through Stripe: open **Support FloBase** in the dashboard's sidebar.
+- **Donate** once through Stripe, $1 to $500: open **Support FloBase** in the dashboard's sidebar, or use a link directly: [$5](https://donate.stripe.com/eVqcN42AfbMg1ow4d84Ja02) · [$20](https://donate.stripe.com/28E6oG2Af7w0aZ6dNI4Ja04) · [$100](https://donate.stripe.com/28EcN4deTcQkc3a2504Ja06). Donations go to Manevia LLC, which develops FloBase.
 - **Grants and sponsorship:** foundations, public programmes and companies can fund the roadmap. Sponsors are thanked here and in the release notes.
 - **Paid support:** help setting FloBase up and a direct line when something breaks.
 - **For free:** star the repository, report bugs, improve the docs, send pull requests.
