@@ -346,14 +346,49 @@ export interface User {
   last_sign_in_at: string | null;
 }
 
+// A workspace is one organization: its own members, projects and
+// assistant. role is the signed-in person's role in it.
+export interface Workspace {
+  id: string;
+  name: string;
+  role: User["role"];
+  created_at: string;
+}
+
 export interface Me {
   kind: "user" | "token";
+  // Role on the platform: the owner runs this FloBase.
   role: User["role"];
   user?: User;
+  workspaces: Workspace[];
+  // The workspace requests work in.
+  workspace: string;
+}
+
+// The workspace the dashboard works in is remembered per browser and sent
+// with every request; the server checks the person belongs to it.
+const WORKSPACE_KEY = "flobase.workspace";
+
+export function getWorkspace(): string {
+  try {
+    return localStorage.getItem(WORKSPACE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function setWorkspace(id: string) {
+  try {
+    if (id) localStorage.setItem(WORKSPACE_KEY, id);
+    else localStorage.removeItem(WORKSPACE_KEY);
+  } catch {
+    // Storage blocked: the server picks the first workspace.
+  }
 }
 
 export interface Invite {
   id: string;
+  workspace_name: string;
   email: string;
   role: "admin" | "member";
   created_at: string;
@@ -435,6 +470,7 @@ async function rawRequest(method: string, path: string, body: unknown, retry: bo
     method,
     headers: {
       ...(memoryToken ? { Authorization: `Bearer ${memoryToken}` } : {}),
+      ...(getWorkspace() ? { "X-FloBase-Workspace": getWorkspace() } : {}),
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -464,10 +500,14 @@ async function rawRequest(method: string, path: string, body: unknown, retry: bo
 export const api = {
   config: () => request<ServerConfig>("GET", "/config"),
   me: () => request<Me>("GET", "/me"),
-  authStatus: () => request<{ setup_required: boolean }>("GET", "/auth/status"),
+  authStatus: () => request<{ setup_required: boolean; signup: boolean }>("GET", "/auth/status"),
+  signUp: (input: { email: string; name: string; password: string; workspace: string }) => authRequest("signup", input),
+  createWorkspace: (name: string) => request<Workspace>("POST", "/workspaces", { name }),
+  renameWorkspace: (id: string, name: string) => request<void>("PATCH", `/workspaces/${id}`, { name }),
+  deleteWorkspace: (id: string) => request<void>("DELETE", `/workspaces/${id}`),
   setupOwner: (input: { api_token: string; email: string; name: string; password: string }) => authRequest("setup", input),
   signIn: (email: string, password: string) => authRequest("token?grant_type=password", { email, password }),
-  inviteInfo: (token: string) => request<{ email: string; role: Invite["role"] }>("GET", `/auth/invites/${encodeURIComponent(token)}`),
+  inviteInfo: (token: string) => request<{ email: string; role: Invite["role"]; workspace: string; has_account: boolean }>("GET", `/auth/invites/${encodeURIComponent(token)}`),
   acceptInvite: (token: string, name: string, password: string) =>
     authRequest(`invites/${encodeURIComponent(token)}/accept`, { name, password }),
   updateMe: (name: string) => request<User>("PATCH", "/me", { name }),

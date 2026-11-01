@@ -31,6 +31,7 @@ const (
 
 type Project struct {
 	ID           string    `json:"id"`
+	WorkspaceID  string    `json:"workspace_id"`
 	Ref          string    `json:"ref"`
 	Name         string    `json:"name"`
 	Engine       string    `json:"engine"`
@@ -152,12 +153,12 @@ func (s *Store) Region(ctx context.Context, id string) (catalog.Region, error) {
 	return r, err
 }
 
-const projectColumns = `id, ref, name, engine, region, plan, status, status_detail, db_host, db_port, pooler_port,
+const projectColumns = `id, coalesce(workspace_id::text, ''), ref, name, engine, region, plan, status, status_detail, db_host, db_port, pooler_port,
 	db_user, db_password, db_name, jwt_secret, anon_key, service_key, created_at, updated_at`
 
 func scanProject(row pgx.Row) (Project, error) {
 	var p Project
-	err := row.Scan(&p.ID, &p.Ref, &p.Name, &p.Engine, &p.Region, &p.Plan, &p.Status, &p.StatusDetail,
+	err := row.Scan(&p.ID, &p.WorkspaceID, &p.Ref, &p.Name, &p.Engine, &p.Region, &p.Plan, &p.Status, &p.StatusDetail,
 		&p.DBHost, &p.DBPort, &p.PoolerPort, &p.DBUser, &p.DBPassword, &p.DBName, &p.JWTSecret, &p.AnonKey, &p.ServiceKey,
 		&p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -168,16 +169,34 @@ func scanProject(row pgx.Row) (Project, error) {
 
 func (s *Store) CreateProject(ctx context.Context, p Project) (Project, error) {
 	return scanProject(s.db.QueryRow(ctx, `
-		insert into projects (ref, name, engine, region, plan, status, db_user, db_password, db_name,
+		insert into projects (workspace_id, ref, name, engine, region, plan, status, db_user, db_password, db_name,
 			jwt_secret, anon_key, service_key)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		values ($13::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		returning `+projectColumns,
 		p.Ref, p.Name, p.Engine, p.Region, p.Plan, StatusProvisioning, p.DBUser, p.DBPassword, p.DBName,
-		p.JWTSecret, p.AnonKey, p.ServiceKey))
+		p.JWTSecret, p.AnonKey, p.ServiceKey, p.WorkspaceID))
 }
 
 func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 	rows, err := s.db.Query(ctx, `select `+projectColumns+` from projects order by created_at desc`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Project
+	for rows.Next() {
+		p, err := scanProject(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// WorkspaceProjects lists one workspace's projects.
+func (s *Store) WorkspaceProjects(ctx context.Context, ws string) ([]Project, error) {
+	rows, err := s.db.Query(ctx, `select `+projectColumns+` from projects where workspace_id::text = $1 order by created_at desc`, ws)
 	if err != nil {
 		return nil, err
 	}

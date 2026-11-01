@@ -48,12 +48,17 @@ type accountState struct {
 }
 
 // identity is who made a request: a signed-in user, or (User nil) the
-// install's API token.
+// install's API token. Workspace is the workspace the request works in
+// (empty for the API token used across all of them) and WorkspaceRole the
+// caller's role there.
 type identity struct {
-	User      *store.User
-	SessionID string
+	User          *store.User
+	SessionID     string
+	Workspace     string
+	WorkspaceRole string
 }
 
+// role is the caller's role on the platform: "owner" runs this FloBase.
 func (i identity) role() string {
 	if i.User == nil {
 		return "owner"
@@ -61,7 +66,15 @@ func (i identity) role() string {
 	return i.User.Role
 }
 
-func (i identity) canManageTeam() bool { return i.role() == "owner" || i.role() == "admin" }
+func (i identity) platformAdmin() bool { return i.role() == "owner" || i.role() == "admin" }
+
+// allWorkspaces is the API token without a workspace header: the install's
+// operator tools (CLI, desktop app) see every workspace.
+func (i identity) allWorkspaces() bool { return i.User == nil && i.Workspace == "" }
+
+func (i identity) canManageTeam() bool {
+	return i.WorkspaceRole == "owner" || i.WorkspaceRole == "admin"
+}
 
 type identityKey struct{}
 
@@ -73,20 +86,22 @@ func who(r *http.Request) identity {
 func (s *Server) accountRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/status", s.authStatus)
 	mux.HandleFunc("POST /api/v1/auth/setup", s.setupOwner)
+	mux.HandleFunc("POST /api/v1/auth/signup", s.signUp)
 	mux.HandleFunc("POST /api/v1/auth/token", s.issueToken)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)
 	mux.HandleFunc("GET /api/v1/auth/invites/{token}", s.inviteInfo)
 	mux.HandleFunc("POST /api/v1/auth/invites/{token}/accept", s.acceptInvite)
 	mux.Handle("PATCH /api/v1/me", s.auth(s.updateMe))
 	mux.Handle("POST /api/v1/me/password", s.auth(s.changePassword))
-	mux.Handle("GET /api/v1/team", s.auth(s.team))
-	mux.Handle("POST /api/v1/team/invites", s.teamAdmin(s.invite))
-	mux.Handle("DELETE /api/v1/team/invites/{id}", s.teamAdmin(s.deleteInvite))
-	mux.Handle("PATCH /api/v1/team/users/{id}", s.teamAdmin(s.setRole))
-	mux.Handle("DELETE /api/v1/team/users/{id}", s.teamAdmin(s.removeUser))
 }
 
-// auth lets a request through with a valid API token or access token.
+// workspaceHeader picks the workspace a request works in.
+const workspaceHeader = "X-FloBase-Workspace"
+
+// auth lets a request through with a valid API token or access token, and
+// settles which workspace it works in. Requests about one project are
+// allowed only for members of that project's workspace: nothing crosses
+// from one workspace to another.
 func (s *Server) auth(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -95,14 +110,115 @@ func (s *Server) auth(next http.HandlerFunc) http.Handler {
 			writeError(w, http.StatusUnauthorized, "Sign in again: the session has ended or the token is not valid.")
 			return
 		}
+		if err := s.pickWorkspace(r, &id); errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusForbidden, "You are not a member of that workspace.")
+			return
+		} else if err != nil {
+			s.internal(w, err)
+			return
+		}
+		if strings.Contains(r.Pattern, " /api/v1/projects/{ref}") {
+			ok, err := s.projectAccess(r, &id)
+			if err != nil {
+				s.internal(w, err)
+				return
+			}
+			if !ok {
+				writeError(w, http.StatusNotFound, "Project not found.")
+				return
+			}
+		}
 		next(w, r.WithContext(context.WithValue(r.Context(), identityKey{}, id)))
 	})
+}
+
+// pickWorkspace sets the request's workspace: the one the header names,
+// which the caller must belong to, else a person's first workspace.
+func (s *Server) pickWorkspace(r *http.Request, id *identity) error {
+	ws := strings.TrimSpace(r.Header.Get(workspaceHeader))
+	if id.User == nil {
+		if ws == "" {
+			return nil
+		}
+		ok, err := s.store.WorkspaceExists(r.Context(), ws)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return store.ErrNotFound
+		}
+		id.Workspace, id.WorkspaceRole = ws, "owner"
+		return nil
+	}
+	if ws == "" {
+		list, err := s.store.UserWorkspaces(r.Context(), id.User.ID)
+		if err != nil || len(list) == 0 {
+			return err
+		}
+		id.Workspace, id.WorkspaceRole = list[0].ID, list[0].Role
+		return nil
+	}
+	role, err := s.store.MemberRole(r.Context(), ws, id.User.ID)
+	if err != nil {
+		return err
+	}
+	id.Workspace, id.WorkspaceRole = ws, role
+	return nil
+}
+
+// projectAccess checks the caller may use the project in the path, and
+// moves the request into that project's workspace.
+func (s *Server) projectAccess(r *http.Request, id *identity) (bool, error) {
+	p, err := s.store.Project(r.Context(), r.PathValue("ref"))
+	if errors.Is(err, store.ErrNotFound) {
+		// The handler answers 404 itself; nothing to reveal either way.
+		return id.allWorkspaces(), nil
+	} else if err != nil {
+		return false, err
+	}
+	switch {
+	case id.allWorkspaces():
+		return true, nil
+	case id.User == nil:
+		return p.WorkspaceID == id.Workspace, nil
+	}
+	role, err := s.store.MemberRole(r.Context(), p.WorkspaceID, id.User.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	id.Workspace, id.WorkspaceRole = p.WorkspaceID, role
+	return true, nil
+}
+
+// workspace is the request's workspace, answering the request when there
+// is none (the API token across all workspaces, or someone in none).
+func workspace(w http.ResponseWriter, r *http.Request) (string, bool) {
+	ws := who(r).Workspace
+	if ws == "" {
+		writeError(w, http.StatusBadRequest, "Pick a workspace: send its id in the "+workspaceHeader+" header.")
+		return "", false
+	}
+	return ws, true
 }
 
 func (s *Server) teamAdmin(next http.HandlerFunc) http.Handler {
 	return s.auth(func(w http.ResponseWriter, r *http.Request) {
 		if !who(r).canManageTeam() {
-			writeError(w, http.StatusForbidden, "Only the owner and admins can manage the team.")
+			writeError(w, http.StatusForbidden, "Only the workspace's owner and admins can do that.")
+			return
+		}
+		next(w, r)
+	})
+}
+
+// platformAdmin is for what runs the whole FloBase rather than one
+// workspace: regions, backup storage, updates.
+func (s *Server) platformAdmin(next http.HandlerFunc) http.Handler {
+	return s.auth(func(w http.ResponseWriter, r *http.Request) {
+		if !who(r).platformAdmin() {
+			writeError(w, http.StatusForbidden, "Only the people who run this FloBase can do that.")
 			return
 		}
 		next(w, r)
@@ -167,16 +283,29 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"setup_required": n == 0})
+	// In the cloud anyone can sign up; a self-hosted FloBase is claimed
+	// once, with its API token, and grows by invitation.
+	writeJSON(w, http.StatusOK, map[string]bool{"setup_required": n == 0 && !s.billing(), "signup": s.billing()})
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	id := who(r)
+	var list []store.Workspace
+	var err error
 	if id.User == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"kind": "token", "role": id.role()})
+		list, err = s.store.AllWorkspaces(r.Context())
+	} else {
+		list, err = s.store.UserWorkspaces(r.Context(), id.User.ID)
+	}
+	if err != nil {
+		s.internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"kind": "user", "role": id.role(), "user": id.User})
+	out := map[string]any{"kind": "token", "role": id.role(), "workspaces": list, "workspace": id.Workspace}
+	if id.User != nil {
+		out["kind"], out["user"] = "user", id.User
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // setupOwner creates the first account. It needs the install's API token,
@@ -209,7 +338,7 @@ func (s *Server) setupOwner(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	u, err := s.store.CreateOwner(r.Context(), email, name, string(hash))
+	u, err := s.store.CreateOwner(r.Context(), email, name, string(hash), workspaceName(name, email))
 	if errors.Is(err, store.ErrExists) {
 		writeError(w, http.StatusConflict, "This FloBase already has an owner. Sign in instead.")
 		return
@@ -373,7 +502,10 @@ func (s *Server) inviteInfo(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"email": inv.Email, "role": inv.Role})
+	_, err = s.store.UserByEmail(r.Context(), inv.Email)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"email": inv.Email, "role": inv.Role, "workspace": inv.WorkspaceName, "has_account": err == nil,
+	})
 }
 
 func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
@@ -382,6 +514,41 @@ func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if !decode(w, r, &req) {
+		return
+	}
+	token := keys.Hash(r.PathValue("token"))
+	inv, err := s.store.InviteByToken(r.Context(), token)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "This invite link has expired or was already used. Ask for a new one.")
+		return
+	} else if err != nil {
+		s.internal(w, err)
+		return
+	}
+	// Someone with an account joins with their password.
+	if u, err := s.store.UserByEmail(r.Context(), inv.Email); err == nil {
+		key := "email:" + strings.ToLower(u.Email)
+		if !s.allowAttempt(key) {
+			writeError(w, http.StatusTooManyRequests, "Too many attempts. Wait 15 minutes and try again.")
+			return
+		}
+		if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.Password)) != nil {
+			s.failAttempt(key)
+			writeError(w, http.StatusBadRequest, "Enter the password of your existing FloBase account.")
+			return
+		}
+		if err := s.store.JoinByInvite(r.Context(), token, u.ID); errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "This invite link has expired or was already used. Ask for a new one.")
+			return
+		} else if err != nil {
+			s.internal(w, err)
+			return
+		}
+		s.log.Info("invite accepted", "user", u.ID, "workspace", inv.WorkspaceID)
+		s.startSession(w, r, u, http.StatusOK)
+		return
+	} else if !errors.Is(err, store.ErrNotFound) {
+		s.internal(w, err)
 		return
 	}
 	_, name, ok := validAccount(w, "invited@flobase", req.Name, req.Password)
@@ -393,7 +560,7 @@ func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	u, err := s.store.AcceptInvite(r.Context(), keys.Hash(r.PathValue("token")), name, string(hash))
+	u, err := s.store.AcceptInvite(r.Context(), token, name, string(hash))
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "This invite link has expired or was already used. Ask for a new one.")
@@ -405,7 +572,7 @@ func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	s.log.Info("invite accepted", "user", u.ID, "role", u.Role)
+	s.log.Info("invite accepted", "user", u.ID, "workspace", inv.WorkspaceID)
 	s.startSession(w, r, u, http.StatusCreated)
 }
 
@@ -473,110 +640,6 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.DeleteUserSessions(r.Context(), id.User.ID, id.SessionID); err != nil {
-		s.internal(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) team(w http.ResponseWriter, r *http.Request) {
-	users, err := s.store.Users(r.Context())
-	if err != nil {
-		s.internal(w, err)
-		return
-	}
-	invites := []store.Invite{}
-	if who(r).canManageTeam() {
-		if invites, err = s.store.Invites(r.Context()); err != nil {
-			s.internal(w, err)
-			return
-		}
-	}
-	if users == nil {
-		users = []store.User{}
-	}
-	if invites == nil {
-		invites = []store.Invite{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"users": users, "invites": invites})
-}
-
-// invite returns the invite's token once; the dashboard turns it into a
-// link to send. FloBase does not send email yet.
-func (s *Server) invite(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Email string `json:"email"`
-		Role  string `json:"role"`
-	}
-	if !decode(w, r, &req) {
-		return
-	}
-	email, _, ok := validAccount(w, req.Email, "", "placeholder")
-	if !ok {
-		return
-	}
-	if req.Role != "admin" && req.Role != "member" {
-		writeError(w, http.StatusBadRequest, "Role must be admin or member.")
-		return
-	}
-	invitedBy := ""
-	if u := who(r).User; u != nil {
-		invitedBy = u.ID
-	}
-	token := keys.Token()
-	inv, err := s.store.CreateInvite(r.Context(), email, req.Role, keys.Hash(token), invitedBy, time.Now().Add(inviteTTL))
-	if errors.Is(err, store.ErrExists) {
-		writeError(w, http.StatusConflict, "That email already has an account.")
-		return
-	} else if err != nil {
-		s.internal(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"invite": inv, "token": token})
-}
-
-func (s *Server) deleteInvite(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteInvite(r.Context(), r.PathValue("id")); err != nil {
-		s.internal(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) setRole(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Role string `json:"role"`
-	}
-	if !decode(w, r, &req) {
-		return
-	}
-	if req.Role != "admin" && req.Role != "member" {
-		writeError(w, http.StatusBadRequest, "Role must be admin or member.")
-		return
-	}
-	if u := who(r).User; u != nil && u.ID == r.PathValue("id") {
-		writeError(w, http.StatusBadRequest, "You cannot change your own role.")
-		return
-	}
-	if err := s.store.SetUserRole(r.Context(), r.PathValue("id"), req.Role); errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "No such person, or it is the owner, whose role stays.")
-		return
-	} else if err != nil {
-		s.internal(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) removeUser(w http.ResponseWriter, r *http.Request) {
-	if u := who(r).User; u != nil && u.ID == r.PathValue("id") {
-		writeError(w, http.StatusBadRequest, "You cannot remove yourself.")
-		return
-	}
-	if err := s.store.DeleteUser(r.Context(), r.PathValue("id")); errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "No such person, or it is the owner, who cannot be removed.")
-		return
-	} else if err != nil {
 		s.internal(w, err)
 		return
 	}

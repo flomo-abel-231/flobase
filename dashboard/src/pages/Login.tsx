@@ -26,16 +26,99 @@ function message(err: unknown, fallback: string) {
   return err instanceof ApiError ? err.message : fallback;
 }
 
-// Login signs in with email and password, or with the install's API token.
-// A new install without accounts shows Setup instead.
-export function Login({ onSignedIn, setupRequired }: { onSignedIn: () => void; setupRequired: boolean }) {
-  const [useToken, setUseToken] = useState(false);
+// Login signs in with email and password. In the cloud anyone can create
+// an account, which comes with a workspace of its own; a self-hosted
+// FloBase also takes the install's API token, and a new one without
+// accounts shows Setup instead.
+export function Login({
+  onSignedIn,
+  setupRequired,
+  signup,
+}: {
+  onSignedIn: () => void;
+  setupRequired: boolean;
+  signup: boolean;
+}) {
+  const [view, setView] = useState<"signin" | "signup" | "token">("signin");
   if (setupRequired) return <Setup onSignedIn={onSignedIn} />;
-  if (useToken) return <TokenLogin onSignedIn={onSignedIn} onBack={() => setUseToken(false)} />;
-  return <PasswordLogin onSignedIn={onSignedIn} onUseToken={() => setUseToken(true)} />;
+  if (view === "token") return <TokenLogin onSignedIn={onSignedIn} onBack={() => setView("signin")} />;
+  if (view === "signup" && signup) return <SignUp onSignedIn={onSignedIn} onBack={() => setView("signin")} />;
+  return (
+    <PasswordLogin
+      onSignedIn={onSignedIn}
+      onUseToken={signup ? undefined : () => setView("token")}
+      onSignUp={signup ? () => setView("signup") : undefined}
+    />
+  );
 }
 
-function PasswordLogin({ onSignedIn, onUseToken }: { onSignedIn: () => void; onUseToken: () => void }) {
+function SignUp({ onSignedIn, onBack }: { onSignedIn: () => void; onBack: () => void }) {
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    workspace: "",
+  });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api.signUp({ ...form, email: form.email.trim() });
+      onSignedIn();
+    } catch (err) {
+      setError(message(err, "Cannot reach the control plane."));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Frame title="Create your account" subtitle="You get a workspace of your own; invite your team to it later.">
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <Field label="Name">
+          <Input autoComplete="name" value={form.name} onChange={set("name")} autoFocus />
+        </Field>
+        <Field label="Email">
+          <Input type="email" autoComplete="username" value={form.email} onChange={set("email")} required />
+        </Field>
+        <Field label="Password" hint="At least 8 characters.">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={form.password}
+            onChange={set("password")}
+            required
+            minLength={8}
+          />
+        </Field>
+        <Field label="Organization" hint="The workspace's name, such as your company. You can change it later.">
+          <Input value={form.workspace} onChange={set("workspace")} maxLength={64} placeholder="Acme Inc." />
+        </Field>
+        {error && <Notice tone="danger">{error}</Notice>}
+        <Button variant="primary" type="submit" disabled={busy}>
+          {busy ? "Creating…" : "Create account"}
+        </Button>
+      </form>
+      <button type="button" onClick={onBack} className="body-sm self-start text-brand underline-offset-2 hover:underline">
+        I have an account: sign in
+      </button>
+    </Frame>
+  );
+}
+
+function PasswordLogin({
+  onSignedIn,
+  onUseToken,
+  onSignUp,
+}: {
+  onSignedIn: () => void;
+  onUseToken?: () => void;
+  onSignUp?: () => void;
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -58,7 +141,14 @@ function PasswordLogin({ onSignedIn, onUseToken }: { onSignedIn: () => void; onU
     <Frame title="Sign in" subtitle="Use your FloBase account.">
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field label="Email">
-          <Input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+          <Input
+            type="email"
+            autoComplete="username"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoFocus
+          />
         </Field>
         <Field label="Password">
           <Input
@@ -74,9 +164,16 @@ function PasswordLogin({ onSignedIn, onUseToken }: { onSignedIn: () => void; onU
           {busy ? "Signing in…" : "Sign in"}
         </Button>
       </form>
-      <button type="button" onClick={onUseToken} className="body-sm self-start text-brand underline-offset-2 hover:underline">
-        Sign in with the API token instead
-      </button>
+      {onSignUp && (
+        <button type="button" onClick={onSignUp} className="body-sm self-start text-brand underline-offset-2 hover:underline">
+          New here? Create an account
+        </button>
+      )}
+      {onUseToken && (
+        <button type="button" onClick={onUseToken} className="body-sm self-start text-brand underline-offset-2 hover:underline">
+          Sign in with the API token instead
+        </button>
+      )}
     </Frame>
   );
 }
@@ -122,7 +219,12 @@ function TokenLogin({ onSignedIn, onBack }: { onSignedIn: () => void; onBack: ()
 // Setup creates the owner account. The API token proves the person runs
 // this install, so nobody else can claim a new public server first.
 function Setup({ onSignedIn }: { onSignedIn: () => void }) {
-  const [form, setForm] = useState({ api_token: "", email: "", name: "", password: "" });
+  const [form, setForm] = useState({
+    api_token: "",
+    email: "",
+    name: "",
+    password: "",
+  });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
@@ -132,7 +234,11 @@ function Setup({ onSignedIn }: { onSignedIn: () => void }) {
     setBusy(true);
     setError("");
     try {
-      await api.setupOwner({ ...form, api_token: form.api_token.trim(), email: form.email.trim() });
+      await api.setupOwner({
+        ...form,
+        api_token: form.api_token.trim(),
+        email: form.email.trim(),
+      });
       onSignedIn();
     } catch (err) {
       setError(message(err, "Cannot reach the control plane."));
@@ -156,7 +262,14 @@ function Setup({ onSignedIn }: { onSignedIn: () => void }) {
           <Input type="email" autoComplete="username" value={form.email} onChange={set("email")} required />
         </Field>
         <Field label="Password" hint="At least 8 characters.">
-          <Input type="password" autoComplete="new-password" value={form.password} onChange={set("password")} required minLength={8} />
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={form.password}
+            onChange={set("password")}
+            required
+            minLength={8}
+          />
         </Field>
         {error && <Notice tone="danger">{error}</Notice>}
         <Button variant="primary" type="submit" disabled={busy}>
@@ -167,10 +280,16 @@ function Setup({ onSignedIn }: { onSignedIn: () => void }) {
   );
 }
 
-// AcceptInvite is where an invite link lands: the person picks a name and
-// password and is signed in.
+// AcceptInvite is where an invite link lands: someone new picks a name and
+// password; someone with an account enters their password. Either way they
+// join the workspace and are signed in.
 export function AcceptInvite({ token, onSignedIn }: { token: string; onSignedIn: () => void }) {
-  const [invite, setInvite] = useState<{ email: string; role: string } | null>(null);
+  const [invite, setInvite] = useState<{
+    email: string;
+    role: string;
+    workspace: string;
+    has_account: boolean;
+  } | null>(null);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -199,21 +318,27 @@ export function AcceptInvite({ token, onSignedIn }: { token: string; onSignedIn:
 
   return (
     <Frame
-      title="Join FloBase"
-      subtitle={invite ? `You were invited as ${invite.role === "admin" ? "an admin" : "a member"}.` : "Checking the invite…"}
+      title={invite ? `Join ${invite.workspace}` : "Join FloBase"}
+      subtitle={
+        invite
+          ? `You were invited as ${invite.role === "admin" ? "an admin" : "a member"}.${invite.has_account ? " Sign in with your FloBase password to accept." : ""}`
+          : "Checking the invite…"
+      }
     >
       {invite && (
         <form onSubmit={submit} className="flex flex-col gap-4">
           <Field label="Email">
             <Input type="email" autoComplete="username" value={invite.email} readOnly />
           </Field>
-          <Field label="Name">
-            <Input autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-          </Field>
-          <Field label="Password" hint="At least 8 characters.">
+          {!invite.has_account && (
+            <Field label="Name">
+              <Input autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            </Field>
+          )}
+          <Field label="Password" hint={invite.has_account ? undefined : "At least 8 characters."}>
             <Input
               type="password"
-              autoComplete="new-password"
+              autoComplete={invite.has_account ? "current-password" : "new-password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -222,7 +347,7 @@ export function AcceptInvite({ token, onSignedIn }: { token: string; onSignedIn:
           </Field>
           {error && <Notice tone="danger">{error}</Notice>}
           <Button variant="primary" type="submit" disabled={busy}>
-            {busy ? "Creating account…" : "Create account"}
+            {busy ? "Joining…" : invite.has_account ? "Join workspace" : "Create account"}
           </Button>
         </form>
       )}

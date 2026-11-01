@@ -80,8 +80,8 @@ func (s *Server) backupRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/projects/{ref}/backups", s.auth(s.listBackups))
 	mux.Handle("POST /api/v1/projects/{ref}/backups", s.auth(s.backupNow))
 	mux.Handle("POST /api/v1/projects/{ref}/restore", s.auth(s.restore))
-	mux.Handle("GET /api/v1/offsite", s.auth(s.listOffsite))
-	mux.Handle("POST /api/v1/offsite/{ref}/restore", s.auth(s.restoreOffsite))
+	mux.Handle("GET /api/v1/offsite", s.platformAdmin(s.listOffsite))
+	mux.Handle("POST /api/v1/offsite/{ref}/restore", s.platformAdmin(s.restoreOffsite))
 }
 
 // backup takes one backup and prunes what the plan no longer keeps.
@@ -296,7 +296,13 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) {
 
 // startRestore creates the new project record and provisions it from spec
 // in the background.
+// The new project joins the request's workspace: the source project's for
+// a restore, the one picked for an off-site restore.
 func (s *Server) startRestore(w http.ResponseWriter, r *http.Request, spec provisioner.Restore, name, sourceName, planID, region string) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	if name == "" {
 		name = sourceName + " (restored)"
 	}
@@ -309,7 +315,7 @@ func (s *Server) startRestore(w http.ResponseWriter, r *http.Request, spec provi
 	}
 	ref, secret := keys.Ref(), keys.JWTSecret()
 	p, err := s.store.CreateProject(r.Context(), store.Project{
-		Ref: ref, Name: name, Engine: "postgres", Region: region, Plan: plan.ID,
+		WorkspaceID: ws, Ref: ref, Name: name, Engine: "postgres", Region: region, Plan: plan.ID,
 		DBUser: "postgres", DBPassword: keys.Password(), DBName: "postgres", JWTSecret: secret,
 		AnonKey: keys.APIKey(secret, ref, "anon"), ServiceKey: keys.APIKey(secret, ref, "service_role"),
 	})

@@ -43,7 +43,7 @@ func (s *Server) viewAutomation(ctx context.Context, a store.Automation) automat
 	v := automationView{ID: a.ID, Name: a.Name, Prompt: a.Prompt, ProviderID: a.ProviderID, Every: a.Every,
 		Enabled: a.Enabled, NextRunAt: a.NextRunAt, LastRunAt: a.LastRunAt, LastChatID: a.LastChatID}
 	if a.LastChatID != nil {
-		if c, err := s.store.Chat(ctx, *a.LastChatID); err == nil {
+		if c, err := s.store.Chat(ctx, a.WorkspaceID, *a.LastChatID); err == nil {
 			v.LastStatus = c.Status
 		}
 	}
@@ -51,7 +51,11 @@ func (s *Server) viewAutomation(ctx context.Context, a store.Automation) automat
 }
 
 func (s *Server) listAutomations(w http.ResponseWriter, r *http.Request) {
-	list, err := s.store.Automations(r.Context())
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
+	list, err := s.store.Automations(r.Context(), ws)
 	if err != nil {
 		s.internal(w, err)
 		return
@@ -75,7 +79,7 @@ func (s *Server) automation(ctx context.Context, req automationRequest, a store.
 	a.Name, a.Prompt, a.Every = strings.TrimSpace(req.Name), strings.TrimSpace(req.Prompt), req.Every
 	a.ProviderID = nil
 	if req.ProviderID != "" {
-		if _, err := s.store.LLMProvider(ctx, req.ProviderID); err != nil {
+		if _, err := s.store.LLMProvider(ctx, a.WorkspaceID, req.ProviderID); err != nil {
 			return a, errors.New("Choose a model that is still set up.")
 		}
 		a.ProviderID = &req.ProviderID
@@ -95,11 +99,15 @@ func (s *Server) automation(ctx context.Context, req automationRequest, a store.
 }
 
 func (s *Server) createAutomation(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	var req automationRequest
 	if !decode(w, r, &req) {
 		return
 	}
-	a, err := s.automation(r.Context(), req, store.Automation{Enabled: true})
+	a, err := s.automation(r.Context(), req, store.Automation{WorkspaceID: ws, Enabled: true})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -114,11 +122,15 @@ func (s *Server) createAutomation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateAutomation(w http.ResponseWriter, r *http.Request) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
 	var req automationRequest
 	if !decode(w, r, &req) {
 		return
 	}
-	cur, err := s.store.Automation(r.Context(), r.PathValue("id"))
+	cur, err := s.store.Automation(r.Context(), ws, r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "Automation not found.")
 		return
@@ -142,7 +154,11 @@ func (s *Server) updateAutomation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteAutomation(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteAutomation(r.Context(), r.PathValue("id")); errors.Is(err, store.ErrNotFound) {
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteAutomation(r.Context(), ws, r.PathValue("id")); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "Automation not found.")
 		return
 	} else if err != nil {
@@ -153,7 +169,11 @@ func (s *Server) deleteAutomation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runAutomationNow(w http.ResponseWriter, r *http.Request) {
-	a, err := s.store.Automation(r.Context(), r.PathValue("id"))
+	ws, ok := workspace(w, r)
+	if !ok {
+		return
+	}
+	a, err := s.store.Automation(r.Context(), ws, r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "Automation not found.")
 		return
@@ -178,7 +198,7 @@ func (s *Server) startAutomation(ctx context.Context, a store.Automation) (store
 	if a.ProviderID != nil {
 		provider = *a.ProviderID
 	}
-	c, err := s.newChat(ctx, provider, &a.ID, a.Prompt)
+	c, err := s.newChat(ctx, a.WorkspaceID, provider, &a.ID, a.Prompt)
 	if err != nil {
 		return c, err
 	}

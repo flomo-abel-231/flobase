@@ -55,9 +55,9 @@ type updateView struct {
 }
 
 func (s *Server) updateRoutes(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/updates", s.auth(s.getUpdates))
-	mux.Handle("POST /api/v1/updates/check", s.auth(s.checkUpdatesNow))
-	mux.Handle("POST /api/v1/updates", s.auth(s.updateNow))
+	mux.Handle("GET /api/v1/updates", s.platformAdmin(s.getUpdates))
+	mux.Handle("POST /api/v1/updates/check", s.platformAdmin(s.checkUpdatesNow))
+	mux.Handle("POST /api/v1/updates", s.platformAdmin(s.updateNow))
 }
 
 // canUpdate: the updater needs the install directory as a host path it
