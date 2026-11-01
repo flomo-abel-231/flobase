@@ -56,17 +56,80 @@ func normalizeCIDRs(in []string) ([]string, string) {
 	return out, ""
 }
 
+// serverIPs are the public addresses of the host a region's projects run
+// on, from its public host name. Allowing one of them also lets in apps on
+// that host, which is what people mean by allowing "the server".
+func (s *Server) serverIPs(ctx context.Context, region string) []net.IP {
+	if s.router == nil {
+		return nil
+	}
+	d, err := s.router.Region(region)
+	if err != nil {
+		return nil
+	}
+	host := d.PublicHost()
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() {
+			return nil
+		}
+		return []net.IP{ip}
+	}
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil
+	}
+	var out []net.IP
+	for _, a := range addrs {
+		if !a.IP.IsLoopback() {
+			out = append(out, a.IP)
+		}
+	}
+	return out
+}
+
+// coversServer is true when one of the allowed ranges contains one of the
+// server's addresses.
+func coversServer(allowed []string, ips []net.IP) bool {
+	for _, c := range allowed {
+		_, n, err := net.ParseCIDR(c)
+		if err != nil {
+			continue
+		}
+		for _, ip := range ips {
+			if n.Contains(ip) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func ipStrings(ips []net.IP) []string {
+	out := []string{}
+	for _, ip := range ips {
+		out = append(out, ip.String())
+	}
+	return out
+}
+
+func (s *Server) networkView(r *http.Request, p store.Project, allowed []string) map[string]any {
+	if allowed == nil {
+		allowed = []string{}
+	}
+	ips := s.serverIPs(r.Context(), p.Region)
+	return map[string]any{
+		"allowed": allowed, "your_ip": clientIP(r),
+		"server_ips": ipStrings(ips), "server_allowed": coversServer(allowed, ips),
+	}
+}
+
 func (s *Server) getNetwork(w http.ResponseWriter, r *http.Request) {
 	p, err := s.store.Project(r.Context(), r.PathValue("ref"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "Project not found.")
 		return
 	}
-	allowed := p.AllowedCIDRs
-	if allowed == nil {
-		allowed = []string{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"allowed": allowed, "your_ip": clientIP(r)})
+	writeJSON(w, http.StatusOK, s.networkView(r, p, p.AllowedCIDRs))
 }
 
 func (s *Server) setNetwork(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +164,7 @@ func (s *Server) setNetwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("network restrictions set", "ref", p.Ref, "allowed", len(allowed))
-	writeJSON(w, http.StatusOK, map[string]any{"allowed": allowed, "your_ip": clientIP(r)})
+	writeJSON(w, http.StatusOK, s.networkView(r, p, allowed))
 }
 
 // applyFirewall gives a region's host the restrictions of all its
@@ -114,14 +177,16 @@ func (s *Server) applyFirewall(ctx context.Context, region string) error {
 	if err != nil {
 		return err
 	}
+	ips := s.serverIPs(ctx, region)
 	var rules []provisioner.PortRule
 	for _, p := range projects {
 		if p.Region != region || len(p.AllowedCIDRs) == 0 || p.Status == store.StatusDeleting {
 			continue
 		}
+		local := coversServer(p.AllowedCIDRs, ips)
 		for _, port := range []int{p.DBPort, p.PoolerPort} {
 			if port > 0 {
-				rules = append(rules, provisioner.PortRule{Port: port, Allow: p.AllowedCIDRs})
+				rules = append(rules, provisioner.PortRule{Port: port, Allow: p.AllowedCIDRs, Local: local})
 			}
 		}
 	}

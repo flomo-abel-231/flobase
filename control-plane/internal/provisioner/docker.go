@@ -545,6 +545,9 @@ func (d *Docker) execEnv(ctx context.Context, name, user string, env []string, c
 	return out, nil
 }
 
+// PublicHost is the name or address clients use to reach this host.
+func (d *Docker) PublicHost() string { return d.publicHost }
+
 // Ping checks the Docker daemon is reachable.
 func (d *Docker) Ping(ctx context.Context) error { return d.call(ctx, "GET", "/_ping", nil, nil) }
 

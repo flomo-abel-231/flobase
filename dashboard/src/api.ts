@@ -499,6 +499,16 @@ async function rawRequest(method: string, path: string, body: unknown, retry: bo
   return text ? JSON.parse(text) : undefined;
 }
 
+// NetworkSettings are a project's network restrictions. server_ips are the
+// addresses of the server it runs on; allowing one also lets in apps
+// running on that server.
+export interface NetworkSettings {
+  allowed: string[];
+  your_ip: string;
+  server_ips: string[];
+  server_allowed: boolean;
+}
+
 // downloadCA saves the install's database CA certificate, for clients that
 // verify the server (sslmode=verify-full and the like).
 export async function downloadCA() {
@@ -540,9 +550,8 @@ export const api = {
     request<Project>("POST", "/projects", input),
   deleteProject: (ref: string, confirm: string) => request<void>("DELETE", `/projects/${ref}`, { confirm }),
   resetPassword: (ref: string) => request<Project>("POST", `/projects/${ref}/password`),
-  network: (ref: string) => request<{ allowed: string[]; your_ip: string }>("GET", `/projects/${ref}/network`),
-  setNetwork: (ref: string, allowed: string[]) =>
-    request<{ allowed: string[]; your_ip: string }>("PUT", `/projects/${ref}/network`, { allowed }),
+  network: (ref: string) => request<NetworkSettings>("GET", `/projects/${ref}/network`),
+  setNetwork: (ref: string, allowed: string[]) => request<NetworkSettings>("PUT", `/projects/${ref}/network`, { allowed }),
   deleteCheck: (ref: string) => request<DeleteCheck>("GET", `/projects/${ref}/delete-check`),
   backupToCloud: (ref: string) => request<{ bucket: string; backup: string; finished: string }>("POST", `/projects/${ref}/backups/offsite`),
   regions: () => request<RegionDetail[]>("GET", "/regions"),

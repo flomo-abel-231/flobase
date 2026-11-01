@@ -164,6 +164,8 @@ function Network({ project }: { project: Project }) {
   const [list, setList] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
   const [yourIP, setYourIP] = useState("");
+  const [serverIPs, setServerIPs] = useState<string[]>([]);
+  const [serverAllowed, setServerAllowed] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -175,6 +177,8 @@ function Network({ project }: { project: Project }) {
         setSaved(n.allowed);
         setList(n.allowed);
         setYourIP(n.your_ip);
+        setServerIPs(n.server_ips);
+        setServerAllowed(n.server_allowed);
       })
       .catch((e) => setError((e as Error).message));
   }, [project.ref]);
@@ -193,6 +197,7 @@ function Network({ project }: { project: Project }) {
       const n = await api.setNetwork(project.ref, list);
       setSaved(n.allowed);
       setList(n.allowed);
+      setServerAllowed(n.server_allowed);
       setNote(n.allowed.length ? "Saved. Only these addresses can reach the database now." : "Saved. Anyone can reach the database again.");
     } catch (e) {
       setError((e as Error).message);
@@ -215,6 +220,13 @@ function Network({ project }: { project: Project }) {
             ? `Restricted: only ${saved.length} address${saved.length === 1 ? "" : "es or ranges"} can connect.`
             : "Open: any address can try to connect (the password is still required)."}
         </p>
+        {saved.length > 0 && serverIPs.length > 0 && (
+          <p className="body-sm text-ink-muted">
+            {serverAllowed
+              ? `This server (${serverIPs[0]}) is allowed, so apps running on it, such as your Coolify or Docker apps, can connect too.`
+              : `Apps running on this server can't connect. Add the server's address (${serverIPs[0]}) to let them in.`}
+          </p>
+        )}
       </div>
       {list.length > 0 && (
         <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface-raised">
@@ -243,6 +255,11 @@ function Network({ project }: { project: Project }) {
         <Button type="submit" disabled={!draft.trim()}>
           Add
         </Button>
+        {serverIPs[0] && !list.some((c) => c.startsWith(serverIPs[0] + "/") || c === serverIPs[0]) && (
+          <Button type="button" onClick={() => add(serverIPs[0])}>
+            Add this server ({serverIPs[0]})
+          </Button>
+        )}
         {yourIP && !list.some((c) => c.startsWith(yourIP + "/") || c === yourIP) && (
           <Button type="button" onClick={() => add(yourIP)}>
             Add my IP ({yourIP})
@@ -250,7 +267,8 @@ function Network({ project }: { project: Project }) {
         )}
       </form>
       <p className="body-sm text-ink-muted">
-        Add your app servers' addresses and your own. Leave the list empty to allow everyone. Connections already open are not cut
+        Add your app servers' addresses and your own. Allowing this server's address also lets in apps running on it. Leave the
+        list empty to allow everyone. Connections already open are not cut
         when you add a restriction; new ones from other addresses are refused.
       </p>
       {error && <Notice tone="danger">{error}</Notice>}

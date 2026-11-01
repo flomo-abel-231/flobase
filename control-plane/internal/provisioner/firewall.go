@@ -24,14 +24,17 @@ const (
 )
 
 // PortRule allows only Allow (addresses or CIDRs, IPv4 or IPv6) to connect
-// to a published port.
+// to a published port. Local also lets in apps on the same host: their
+// containers connect from Docker's own networks, not from the server's
+// address, so listing the server's IP alone would not reach them.
 type PortRule struct {
 	Port  int
 	Allow []string
+	Local bool
 }
 
-// firewallScript keeps FLOBASE-PROJECTS in step with RULES ("port cidr,cidr;
-// port cidr"). New IPv4 connections reach published ports through Docker's
+// firewallScript keeps FLOBASE-PROJECTS in step with RULES ("port cidr,cidr
+// [local];port cidr"). New IPv4 connections reach published ports through Docker's
 // DOCKER-USER chain; IPv6 ones arrive through Docker's proxy, so INPUT. The
 // hooks only send traffic into the chain, whose rules name project ports.
 const firewallScript = `set -e
@@ -42,8 +45,14 @@ done
 [ -n "$IPT" ] || { echo "Docker's DOCKER-USER chain is missing" >&2; exit 1; }
 apply() {
   for t in "$IPT" "$IP6T"; do $t -N FLOBASE-PROJECTS 2>/dev/null || true; $t -F FLOBASE-PROJECTS; done
-  echo "$RULES" | tr ';' '\n' | while read -r port cidrs; do
+  echo "$RULES" | tr ';' '\n' | while read -r port cidrs local; do
     [ -n "$port" ] || continue
+    if [ "$local" = local ]; then
+      # Containers on this host reach published ports from Docker's bridges.
+      for i in docker0 br-+; do
+        $IPT -A FLOBASE-PROJECTS -i "$i" -p tcp -m conntrack --ctorigdstport "$port" -j RETURN
+      done
+    fi
     for c in $(echo "$cidrs" | tr ',' ' '); do
       case "$c" in
         *:*) $IP6T -A FLOBASE-PROJECTS -s "$c" -p tcp -m conntrack --ctorigdstport "$port" -j RETURN ;;
@@ -78,7 +87,11 @@ func firewallRules(rules []PortRule) string {
 		}
 		allow := append([]string(nil), r.Allow...)
 		sort.Strings(allow)
-		parts = append(parts, strconv.Itoa(r.Port)+" "+strings.Join(allow, ","))
+		part := strconv.Itoa(r.Port) + " " + strings.Join(allow, ",")
+		if r.Local {
+			part += " local"
+		}
+		parts = append(parts, part)
 	}
 	return strings.Join(parts, ";")
 }
