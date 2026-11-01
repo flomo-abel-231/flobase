@@ -2,7 +2,7 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.8.0 — 2026-11-01
 
 - **FloBase is self-hosted software, funded by donations.** There are no public cloud plans: self-hosted is the supported mode, and cloud mode stays in the code, not offered.
 - **Support FloBase** page in the sidebar: sponsor on GitHub, give once through Stripe ($1, $2, $5, $10, $20, $50, $100 or $500), ask about grants, sponsorship or paid support, or help for free. The links are set in `dashboard/src/support.ts`.
