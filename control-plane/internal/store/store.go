@@ -55,7 +55,10 @@ type Project struct {
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 	WarnedDays *int       `json:"-"`
 	// SizeBytes is the database's size when last measured; nil = not yet.
-	SizeBytes *int64    `json:"size_bytes,omitempty"`
+	SizeBytes *int64 `json:"size_bytes,omitempty"`
+	// SizeState is how the database stands against its plan's size: "",
+	// "warn80", "warn90" or "readonly".
+	SizeState string    `json:"size_state"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -162,13 +165,13 @@ func (s *Store) Region(ctx context.Context, id string) (catalog.Region, error) {
 }
 
 const projectColumns = `id, coalesce(workspace_id::text, ''), ref, name, engine, region, plan, status, status_detail, db_host, db_port, pooler_port,
-	db_user, db_password, db_name, jwt_secret, anon_key, service_key, tls, allowed_cidrs, expires_at, warned_days, size_bytes, created_at, updated_at`
+	db_user, db_password, db_name, jwt_secret, anon_key, service_key, tls, allowed_cidrs, expires_at, warned_days, size_bytes, size_state, created_at, updated_at`
 
 func scanProject(row pgx.Row) (Project, error) {
 	var p Project
 	err := row.Scan(&p.ID, &p.WorkspaceID, &p.Ref, &p.Name, &p.Engine, &p.Region, &p.Plan, &p.Status, &p.StatusDetail,
 		&p.DBHost, &p.DBPort, &p.PoolerPort, &p.DBUser, &p.DBPassword, &p.DBName, &p.JWTSecret, &p.AnonKey, &p.ServiceKey,
-		&p.TLS, &p.AllowedCIDRs, &p.ExpiresAt, &p.WarnedDays, &p.SizeBytes, &p.CreatedAt, &p.UpdatedAt)
+		&p.TLS, &p.AllowedCIDRs, &p.ExpiresAt, &p.WarnedDays, &p.SizeBytes, &p.SizeState, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, ErrNotFound
 	}
@@ -268,6 +271,12 @@ func (s *Store) SetPlan(ctx context.Context, ref, plan string, expires *time.Tim
 // SetSize records a project's measured database size.
 func (s *Store) SetSize(ctx context.Context, ref string, bytes int64) error {
 	_, err := s.db.Exec(ctx, `update projects set size_bytes = $2 where ref = $1`, ref, bytes)
+	return err
+}
+
+// SetSizeState records how a project stands against its plan's size.
+func (s *Store) SetSizeState(ctx context.Context, ref, state string) error {
+	_, err := s.db.Exec(ctx, `update projects set size_state = $2 where ref = $1`, ref, state)
 	return err
 }
 

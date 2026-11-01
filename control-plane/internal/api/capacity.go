@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"flobase/control-plane/internal/catalog"
-	"flobase/control-plane/internal/provisioner"
 	"flobase/control-plane/internal/store"
 )
 
@@ -25,6 +24,9 @@ func (s *Server) capacityRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/workspaces", s.platformAdmin(s.adminWorkspaces))
 	mux.Handle("PUT /api/v1/admin/workspaces/{id}/storage", s.platformAdmin(s.setWorkspaceStorage))
 	mux.Handle("PUT /api/v1/projects/{ref}/plan", s.auth(s.changePlan))
+	// The platform's owner and admins manage every workspace's projects.
+	mux.Handle("GET /api/v1/admin/workspaces/{id}/projects", s.platformAdmin(s.adminWorkspaceProjects))
+	mux.Handle("PUT /api/v1/admin/projects/{ref}/plan", s.platformAdmin(s.movePlan))
 }
 
 // planMB is the database size a plan comes with.
@@ -43,6 +45,7 @@ type storageProject struct {
 	Status    string     `json:"status"`
 	PlanMB    int        `json:"plan_mb"`
 	UsedBytes *int64     `json:"used_bytes"`
+	SizeState string     `json:"size_state"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
@@ -69,7 +72,7 @@ func (s *Server) storageOf(ctx context.Context, ws string) (capacityView, error)
 			continue
 		}
 		sp := storageProject{Ref: p.Ref, Name: p.Name, Engine: p.Engine, Plan: p.Plan, Status: p.Status,
-			PlanMB: projectMB(p), UsedBytes: p.SizeBytes}
+			PlanMB: projectMB(p), UsedBytes: p.SizeBytes, SizeState: p.SizeState}
 		if s.billing() {
 			sp.ExpiresAt = p.ExpiresAt
 		}
@@ -190,6 +193,22 @@ func (s *Server) changePlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "Only the workspace's owner and admins can change a project's plan.")
 		return
 	}
+	s.movePlan(w, r)
+}
+
+func (s *Server) adminWorkspaceProjects(w http.ResponseWriter, r *http.Request) {
+	v, err := s.storageOf(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "Workspace not found.")
+		return
+	} else if err != nil {
+		s.internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (s *Server) movePlan(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.activeProject(w, r)
 	if !ok {
 		return
@@ -246,11 +265,7 @@ func (s *Server) changePlan(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	spec := provisioner.Spec{
-		Ref: p.Ref, Engine: p.Engine, Plan: plan, User: p.DBUser, Password: p.DBPassword, Database: p.DBName,
-		JWTSecret: p.JWTSecret, AuthURL: s.apiURL(p.Ref) + "/auth/v1",
-	}
-	if err := s.prov.Recreate(ctx, spec); err != nil {
+	if err := s.prov.Recreate(ctx, s.specFor(p, plan)); err != nil {
 		s.log.Error("change plan", "ref", p.Ref, "err", err)
 		_ = s.store.SetPlan(context.Background(), p.Ref, old, oldExpires)
 		writeError(w, http.StatusBadGateway, "Could not restart the project on the new plan: "+err.Error())
@@ -258,13 +273,19 @@ func (s *Server) changePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("plan changed", "ref", p.Ref, "from", old, "to", plan.ID)
 	p.Plan, p.ExpiresAt = plan.ID, expires
+	// A bigger plan may lift read-only at once.
+	s.enforceSize(ctx, p)
+	if fresh, err := s.store.Project(ctx, p.Ref); err == nil {
+		p = fresh
+	}
 	writeJSON(w, http.StatusOK, s.view(p, false))
 }
 
-// StartUsage measures every running project's database each hour.
+// StartUsage measures every running project's database every ten minutes
+// and holds it to its plan's size (see enforce.go).
 func (s *Server) StartUsage(ctx context.Context) {
 	go func() {
-		t := time.NewTicker(time.Hour)
+		t := time.NewTicker(10 * time.Minute)
 		defer t.Stop()
 		for {
 			s.measure(ctx)
@@ -296,7 +317,12 @@ func (s *Server) measure(ctx context.Context) {
 		}
 		if err := s.store.SetSize(ctx, p.Ref, n); err != nil {
 			s.log.Warn("measure storage", "ref", p.Ref, "err", err)
+			continue
 		}
+		p.SizeBytes = &n
+		ectx, cancel := context.WithTimeout(ctx, time.Minute)
+		s.enforceSize(ectx, p)
+		cancel()
 	}
 }
 
@@ -319,9 +345,21 @@ func (s *Server) databaseSize(ctx context.Context, p store.Project) (int64, erro
 			return 0, err
 		}
 		defer db.Close()
-		err = db.QueryRowContext(ctx, `select coalesce(sum(data_length + index_length), 0) from information_schema.tables
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			return 0, err
+		}
+		defer conn.Close()
+		// MySQL caches table sizes for a day by default; ask for fresh ones.
+		if _, err := conn.ExecContext(ctx, "set session information_schema_stats_expiry = 0"); err != nil {
+			return 0, err
+		}
+		err = conn.QueryRowContext(ctx, `select coalesce(sum(data_length + index_length), 0) from information_schema.tables
 			where table_schema = database()`).Scan(&n)
 		return n, err
+	case "mongodb":
+		plan, _ := catalog.PlanByID(p.Plan)
+		return s.prov.MongoSize(ctx, s.specFor(p, plan))
 	}
 	return 0, errUnmeasured
 }

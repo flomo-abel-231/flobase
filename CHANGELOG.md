@@ -2,6 +2,12 @@
 
 All notable changes to FloBase. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+- **Plan sizes are enforced in the cloud.** FloBase measures every database every 10 minutes. At 80% and 90% of its plan's size, the workspace's owners and admins get an email and a dashboard banner. Past 100% the database turns read-only (Postgres, MySQL and MongoDB-compatible): apps can read but writes are refused. The SQL editor and the table editor's delete still work, so people can make room. Writes come back once the database is under 95% of the plan, or at once after moving to a bigger plan. Self-hosted FloBase measures sizes but enforces nothing.
+- MongoDB-compatible projects are measured too, and MySQL sizes are read fresh instead of from MySQL's day-old cache.
+- **Admins manage every workspace.** On **Workspace storage**, each workspace opens to list its projects with their size and state, and the platform's owner and admins can move any of them to another plan, paid plans included.
+
 ## 0.10.0 — 2026-11-01
 
 - **Home page for the hosted cloud.** With `FLOBASE_MODE=cloud`, visitors who aren't signed in see a front page with what FloBase does and its plans, with **Sign in** and **Start free**. Self-hosted FloBase still opens on sign-in.

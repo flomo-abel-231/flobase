@@ -83,7 +83,9 @@ MongoDB itself is under the SSPL, which would force the whole service's source o
 
 `FLOBASE_MODE=cloud` runs a hosted service. Visitors land on a home page with the plans; anyone can sign up and gets a workspace of their own. Plans show prices (estimated server cost in the region × `FLOBASE_MARKUP`, default 1.6, rounded up to .99). Paid plans stay closed to everyone but the platform's owner until payments are set up. Free projects have a 500 MB database and are deleted 30 days after they are created; their workspace's owners and admins are warned 15, 10, 5, 3 and 1 days before, by email (with `FLOBASE_SMTP_*` set) and with a banner in the dashboard.
 
-In both modes the platform's owner can give each workspace a storage limit under **Workspace storage**, counted by the database sizes of its projects' plans, and anyone running a workspace can move a project to another plan from its **Configuration > Plan** page.
+In the cloud, plan sizes are limits: databases are measured every 10 minutes, owners are warned at 80% and 90%, and past 100% the database turns read-only until data is deleted (the SQL editor and table editor still work) or the project moves to a bigger plan.
+
+In both modes the platform's owner can give each workspace a storage limit under **Workspace storage**, counted by the database sizes of its projects' plans, and move any project to another plan there; anyone running a workspace can move a project to another plan from its **Configuration > Plan** page.
 
 ## Regions
 

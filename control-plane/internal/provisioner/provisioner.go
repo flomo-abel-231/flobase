@@ -81,6 +81,10 @@ type Provisioner interface {
 	// Recreate replaces the project's containers with ones built from s,
 	// keeping its data and published ports.
 	Recreate(ctx context.Context, s Spec) error
+	// SetReadOnly turns writes off, or back on, for a project's database.
+	SetReadOnly(ctx context.Context, s Spec, on bool) error
+	// MongoSize is the size of a FerretDB project's data.
+	MongoSize(ctx context.Context, s Spec) (int64, error)
 	// EnsureTLS turns TLS on for a project made before it existed; true
 	// when it changed something.
 	EnsureTLS(ctx context.Context, s Spec) (bool, error)

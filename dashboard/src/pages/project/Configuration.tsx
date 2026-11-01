@@ -73,6 +73,9 @@ function General({ project }: { project: Project }) {
     ["Created", new Date(project.created_at).toLocaleString()],
     ["Database size", project.size_bytes == null ? "Not measured yet" : formatBytes(project.size_bytes)],
   ];
+  if (project.size_state === "readonly") {
+    rows.push(["Writes", <span className="text-danger">Read-only: over the plan's size</span>]);
+  }
   if (project.expires_at) {
     rows.push([
       "Deleted on",
