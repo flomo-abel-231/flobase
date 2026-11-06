@@ -119,6 +119,12 @@ func run(log *slog.Logger) error {
 		AutoUpdate: os.Getenv("FLOBASE_AUTO_UPDATE") == "true",
 		InstallDir: os.Getenv("FLOBASE_INSTALL_DIR"),
 		Local:      os.Getenv("FLOBASE_INSTALL_KIND") == "local",
+		OwnerEmail:   strings.TrimSpace(os.Getenv("FLOBASE_OWNER_EMAIL")),
+		SMTPHost:     os.Getenv("FLOBASE_SMTP_HOST"),
+		SMTPPort:     env("FLOBASE_SMTP_PORT", "587"),
+		SMTPUser:     os.Getenv("FLOBASE_SMTP_USER"),
+		SMTPPassword: os.Getenv("FLOBASE_SMTP_PASSWORD"),
+		SMTPFrom:     os.Getenv("FLOBASE_SMTP_FROM"),
 	}
 	// The updater needs the install's Compose project and container names,
 	// which Compose put on this container.

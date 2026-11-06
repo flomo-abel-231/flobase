@@ -433,9 +433,12 @@ async function rawRequest(method: string, path: string, body: unknown, retry: bo
 export const api = {
   config: () => request<ServerConfig>("GET", "/config"),
   me: () => request<Me>("GET", "/me"),
-  authStatus: () => request<{ setup_required: boolean }>("GET", "/auth/status"),
+  authStatus: () => request<{ setup_required: boolean; owner_email_configured: boolean; smtp_configured: boolean }>("GET", "/auth/status"),
   setupOwner: (input: { api_token: string; email: string; name: string; password: string }) => authRequest("setup", input),
   signIn: (email: string, password: string) => authRequest("token?grant_type=password", { email, password }),
+  forgotPassword: (email: string) => request<void>("POST", "/auth/forgot-password", { email }),
+  resetPasswordToken: (token: string, password: string) =>
+    request<void>("POST", `/auth/reset-password/${encodeURIComponent(token)}`, { password }),
   inviteInfo: (token: string) => request<{ email: string; role: Invite["role"] }>("GET", `/auth/invites/${encodeURIComponent(token)}`),
   acceptInvite: (token: string, name: string, password: string) =>
     authRequest(`invites/${encodeURIComponent(token)}/accept`, { name, password }),

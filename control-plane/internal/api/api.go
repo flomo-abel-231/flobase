@@ -39,6 +39,15 @@ type Config struct {
 	// Project and Name are the install's Compose project and container
 	// prefix (FLOBASE_NAME), so the updater works on this install only.
 	Project, Name string
+	// OwnerEmail, when set, is the only address allowed to claim the owner
+	// account on first setup. When empty, the first signup is accepted.
+	OwnerEmail string
+	// SMTP credentials for outgoing email (invites, password reset).
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 type Server struct {
@@ -53,12 +62,24 @@ type Server struct {
 	// assistant tracks conversations being worked on.
 	assistant assistantState
 	accounts  accountState
+	mailer    *Mailer
 }
 
 func New(cfg Config, st *store.Store, prov provisioner.Provisioner, log *slog.Logger) *Server {
 	s := &Server{cfg: cfg, store: st, prov: prov, log: log, jobs: backupJobs{running: map[string]bool{}, sources: map[string]int{}}}
 	if u, ok := prov.(Updater); ok {
 		s.updater = u
+	}
+	if cfg.SMTPHost != "" && cfg.SMTPUser != "" && cfg.SMTPPassword != "" {
+		port := cfg.SMTPPort
+		if port == "" {
+			port = "587"
+		}
+		from := cfg.SMTPFrom
+		if from == "" {
+			from = cfg.SMTPUser
+		}
+		s.mailer = &Mailer{Host: cfg.SMTPHost, Port: port, User: cfg.SMTPUser, Password: cfg.SMTPPassword, From: from}
 	}
 	return s
 }

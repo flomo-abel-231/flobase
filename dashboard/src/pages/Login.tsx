@@ -28,14 +28,15 @@ function message(err: unknown, fallback: string) {
 
 // Login signs in with email and password, or with the install's API token.
 // A new install without accounts shows Setup instead.
-export function Login({ onSignedIn, setupRequired }: { onSignedIn: () => void; setupRequired: boolean }) {
-  const [useToken, setUseToken] = useState(false);
+export function Login({ onSignedIn, setupRequired, smtpConfigured }: { onSignedIn: () => void; setupRequired: boolean; smtpConfigured: boolean }) {
+  const [view, setView] = useState<"password" | "token" | "forgot">("password");
   if (setupRequired) return <Setup onSignedIn={onSignedIn} />;
-  if (useToken) return <TokenLogin onSignedIn={onSignedIn} onBack={() => setUseToken(false)} />;
-  return <PasswordLogin onSignedIn={onSignedIn} onUseToken={() => setUseToken(true)} />;
+  if (view === "token") return <TokenLogin onSignedIn={onSignedIn} onBack={() => setView("password")} />;
+  if (view === "forgot") return <ForgotPassword onBack={() => setView("password")} />;
+  return <PasswordLogin onSignedIn={onSignedIn} onUseToken={() => setView("token")} onForgot={smtpConfigured ? () => setView("forgot") : undefined} />;
 }
 
-function PasswordLogin({ onSignedIn, onUseToken }: { onSignedIn: () => void; onUseToken: () => void }) {
+function PasswordLogin({ onSignedIn, onUseToken, onForgot }: { onSignedIn: () => void; onUseToken: () => void; onForgot?: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -74,9 +75,130 @@ function PasswordLogin({ onSignedIn, onUseToken }: { onSignedIn: () => void; onU
           {busy ? "Signing in…" : "Sign in"}
         </Button>
       </form>
-      <button type="button" onClick={onUseToken} className="body-sm self-start text-brand underline-offset-2 hover:underline">
-        Sign in with the API token instead
+      <div className="flex flex-col gap-1">
+        <button type="button" onClick={onUseToken} className="body-sm self-start text-brand underline-offset-2 hover:underline">
+          Sign in with the API token instead
+        </button>
+        {onForgot && (
+          <button type="button" onClick={onForgot} className="body-sm self-start text-brand underline-offset-2 hover:underline">
+            Forgot password?
+          </button>
+        )}
+      </div>
+    </Frame>
+  );
+}
+
+function ForgotPassword({ onBack }: { onBack: () => void }) {
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api.forgotPassword(email.trim());
+      setSent(true);
+    } catch (err) {
+      setError(message(err, "Cannot reach the control plane."));
+      setBusy(false);
+    }
+  };
+
+  if (sent) {
+    return (
+      <Frame title="Check your email" subtitle={`If ${email} has an account, a reset link is on its way.`}>
+        <button type="button" onClick={onBack} className="body-sm self-start text-brand underline-offset-2 hover:underline">
+          Back to sign in
+        </button>
+      </Frame>
+    );
+  }
+
+  return (
+    <Frame title="Forgot password" subtitle="Enter your email and we will send a reset link.">
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <Field label="Email">
+          <Input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+        </Field>
+        {error && <Notice tone="danger">{error}</Notice>}
+        <Button variant="primary" type="submit" disabled={busy || !email.trim()}>
+          {busy ? "Sending…" : "Send reset link"}
+        </Button>
+      </form>
+      <button type="button" onClick={onBack} className="body-sm self-start text-brand underline-offset-2 hover:underline">
+        Back to sign in
       </button>
+    </Frame>
+  );
+}
+
+export function ResetPassword({ token, onDone }: { token: string; onDone: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await api.resetPasswordToken(token, password);
+      setDone(true);
+    } catch (err) {
+      setError(message(err, "Cannot reach the control plane."));
+      setBusy(false);
+    }
+  };
+
+  if (done) {
+    return (
+      <Frame title="Password updated" subtitle="Your password has been changed. All other sessions have been signed out.">
+        <Button variant="primary" onClick={onDone}>
+          Sign in
+        </Button>
+      </Frame>
+    );
+  }
+
+  return (
+    <Frame title="Reset password" subtitle="Choose a new password for your account.">
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <Field label="New password" hint="At least 8 characters.">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={8}
+            autoFocus
+          />
+        </Field>
+        <Field label="Confirm password">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            required
+            minLength={8}
+          />
+        </Field>
+        {error && <Notice tone="danger">{error}</Notice>}
+        <Button variant="primary" type="submit" disabled={busy || !password || !confirm}>
+          {busy ? "Saving…" : "Set new password"}
+        </Button>
+      </form>
     </Frame>
   );
 }

@@ -276,6 +276,30 @@ func (s *Store) AcceptInvite(ctx context.Context, tokenHash, name, passwordHash 
 	return u, tx.Commit(ctx)
 }
 
+// CreatePasswordReset stores a hashed reset token for the user, replacing any
+// existing one so each user has at most one pending reset.
+func (s *Store) CreatePasswordReset(ctx context.Context, userID, tokenHash string, expires time.Time) error {
+	_, err := s.db.Exec(ctx, `
+		insert into password_resets (user_id, token_hash, expires_at) values ($1, $2, $3)
+		on conflict (user_id) do update set token_hash = excluded.token_hash, created_at = now(), expires_at = excluded.expires_at`,
+		userID, tokenHash, expires)
+	return err
+}
+
+// UserByPasswordReset returns the user a valid (unexpired) reset token belongs to.
+func (s *Store) UserByPasswordReset(ctx context.Context, tokenHash string) (User, error) {
+	return scanUser(s.db.QueryRow(ctx, `
+		select `+prefixed("u.", userColumns)+` from password_resets pr
+		join users u on u.id = pr.user_id
+		where pr.token_hash = $1 and pr.expires_at > now()`, tokenHash))
+}
+
+// DeletePasswordReset removes a reset token after it has been used.
+func (s *Store) DeletePasswordReset(ctx context.Context, tokenHash string) error {
+	_, err := s.db.Exec(ctx, `delete from password_resets where token_hash = $1`, tokenHash)
+	return err
+}
+
 // prefixed qualifies each column in a column list with a table alias.
 func prefixed(alias, columns string) string {
 	parts := strings.Split(columns, ",")

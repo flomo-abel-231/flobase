@@ -75,6 +75,8 @@ func (s *Server) accountRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/setup", s.setupOwner)
 	mux.HandleFunc("POST /api/v1/auth/token", s.issueToken)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)
+	mux.HandleFunc("POST /api/v1/auth/forgot-password", s.forgotPassword)
+	mux.HandleFunc("POST /api/v1/auth/reset-password/{token}", s.resetAccountPassword)
 	mux.HandleFunc("GET /api/v1/auth/invites/{token}", s.inviteInfo)
 	mux.HandleFunc("POST /api/v1/auth/invites/{token}/accept", s.acceptInvite)
 	mux.Handle("PATCH /api/v1/me", s.auth(s.updateMe))
@@ -167,7 +169,11 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"setup_required": n == 0})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"setup_required":          n == 0,
+		"owner_email_configured":  s.cfg.OwnerEmail != "",
+		"smtp_configured":         s.mailer != nil,
+	})
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
@@ -202,6 +208,10 @@ func (s *Server) setupOwner(w http.ResponseWriter, r *http.Request) {
 	}
 	email, name, ok := validAccount(w, req.Email, req.Name, req.Password)
 	if !ok {
+		return
+	}
+	if s.cfg.OwnerEmail != "" && !strings.EqualFold(email, s.cfg.OwnerEmail) {
+		writeError(w, http.StatusForbidden, "The owner account must use the email address set in FLOBASE_OWNER_EMAIL.")
 		return
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcryptCost)
@@ -501,8 +511,89 @@ func (s *Server) team(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"users": users, "invites": invites})
 }
 
-// invite returns the invite's token once; the dashboard turns it into a
-// link to send. FloBase does not send email yet.
+// forgotPassword sends a password-reset link to the given email address.
+// It always returns 204 so callers cannot tell whether the address has an account.
+func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email string `json:"email"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if s.mailer == nil {
+		writeError(w, http.StatusServiceUnavailable, "Password reset by email is not configured on this server. Contact your administrator.")
+		return
+	}
+	key := "forgot:" + strings.ToLower(strings.TrimSpace(req.Email))
+	if !s.allowAttempt(key) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.failAttempt(key)
+
+	u, err := s.store.UserByEmail(r.Context(), strings.TrimSpace(req.Email))
+	if err != nil {
+		// No account: return 204 without revealing that.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	token := keys.Token()
+	expires := time.Now().Add(time.Hour)
+	if err := s.store.CreatePasswordReset(r.Context(), u.ID, keys.Hash(token), expires); err != nil {
+		s.internal(w, err)
+		return
+	}
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	host := r.Host
+	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
+		host = fh
+	}
+	resetURL := scheme + "://" + host + "/#/reset-password/" + token
+	if err := s.mailer.sendPasswordReset(u.Email, resetURL, expires); err != nil {
+		s.log.Warn("send password reset email", "user", u.ID, "err", err)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// resetAccountPassword validates a password-reset token and sets a new password.
+func (s *Server) resetAccountPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	tokenHash := keys.Hash(r.PathValue("token"))
+	u, err := s.store.UserByPasswordReset(r.Context(), tokenHash)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "This reset link has expired or was already used. Request a new one.")
+		return
+	} else if err != nil {
+		s.internal(w, err)
+		return
+	}
+	if _, _, ok := validAccount(w, u.Email, u.Name, req.Password); !ok {
+		return
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcryptCost)
+	if err != nil {
+		s.internal(w, err)
+		return
+	}
+	if err := s.store.SetUserPassword(r.Context(), u.ID, string(hash)); err != nil {
+		s.internal(w, err)
+		return
+	}
+	_ = s.store.DeleteUserSessions(r.Context(), u.ID, "")
+	_ = s.store.DeletePasswordReset(r.Context(), tokenHash)
+	s.log.Info("password reset via email", "user", u.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// invite creates an invite and, when SMTP is configured, sends the link by email.
 func (s *Server) invite(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email string `json:"email"`
@@ -531,6 +622,20 @@ func (s *Server) invite(w http.ResponseWriter, r *http.Request) {
 	} else if err != nil {
 		s.internal(w, err)
 		return
+	}
+	if s.mailer != nil {
+		scheme := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		host := r.Host
+		if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
+			host = fh
+		}
+		inviteURL := scheme + "://" + host + "/#/invite/" + token
+		if err := s.mailer.sendInvite(email, req.Role, inviteURL, inv.ExpiresAt); err != nil {
+			s.log.Warn("send invite email", "email", email, "err", err)
+		}
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"invite": inv, "token": token})
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api, getToken, refreshSession, setToken, signOut as endSession, type Me, type ServerConfig } from "./api";
 import { Logo } from "./ui";
-import { AcceptInvite, Login } from "./pages/Login";
+import { AcceptInvite, Login, ResetPassword } from "./pages/Login";
 import { Projects } from "./pages/Projects";
 import { NewProject } from "./pages/NewProject";
 import { ProjectDetail } from "./pages/ProjectDetail";
@@ -25,6 +25,7 @@ type Route =
   | { page: "team" }
   | { page: "account" }
   | { page: "invite"; token: string }
+  | { page: "reset-password"; token: string }
   | { page: "project"; ref: string; tab: string; section?: string };
 
 function parseRoute(hash: string): Route {
@@ -42,6 +43,8 @@ function parseRoute(hash: string): Route {
   if (path === "/account") return { page: "account" };
   const invite = path.match(/^\/invite\/([A-Za-z0-9]+)$/);
   if (invite) return { page: "invite", token: invite[1] };
+  const reset = path.match(/^\/reset-password\/([A-Za-z0-9]+)$/);
+  if (reset) return { page: "reset-password", token: reset[1] };
   return { page: "projects" };
 }
 
@@ -110,6 +113,7 @@ export function App() {
   // null = still checking; false = signed out.
   const [me, setMe] = useState<Me | false | null>(null);
   const [setupRequired, setSetupRequired] = useState(false);
+  const [smtpConfigured, setSmtpConfigured] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -132,8 +136,9 @@ export function App() {
     } catch {
       setToken("");
     }
-    const status = await api.authStatus().catch(() => ({ setup_required: false }));
+    const status = await api.authStatus().catch(() => ({ setup_required: false, owner_email_configured: false, smtp_configured: false }));
     setSetupRequired(status.setup_required);
+    setSmtpConfigured(status.smtp_configured ?? false);
     setMe(false);
   };
 
@@ -150,7 +155,8 @@ export function App() {
 
   if (me === null) return null;
   if (route.page === "invite") return <AcceptInvite token={route.token} onSignedIn={() => void load()} />;
-  if (!me) return <Login setupRequired={setupRequired} onSignedIn={() => void load()} />;
+  if (route.page === "reset-password") return <ResetPassword token={route.token} onDone={() => { window.location.hash = "#/"; void load(); }} />;
+  if (!me) return <Login setupRequired={setupRequired} smtpConfigured={smtpConfigured} onSignedIn={() => void load()} />;
 
   const section =
     route.page === "project" || route.page === "new" ? "projects" : route.page === "assistant-settings" ? "assistant" : route.page;
