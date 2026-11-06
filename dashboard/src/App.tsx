@@ -12,7 +12,7 @@ import {
   type ServerConfig,
 } from "./api";
 import { Logo, ThemeSwitch } from "./ui";
-import { AcceptInvite, Login } from "./pages/Login";
+import { AcceptInvite, Login, ResetPassword } from "./pages/Login";
 import { Projects } from "./pages/Projects";
 import { NewProject } from "./pages/NewProject";
 import { ProjectDetail } from "./pages/ProjectDetail";
@@ -46,6 +46,7 @@ type Route =
   | { page: "support" }
   | { page: "account" }
   | { page: "invite"; token: string }
+  | { page: "reset"; token: string }
   | { page: "project"; ref: string; tab: string; section?: string };
 
 function parseRoute(hash: string): Route {
@@ -67,6 +68,8 @@ function parseRoute(hash: string): Route {
   if (path === "/account") return { page: "account" };
   const invite = path.match(/^\/invite\/([A-Za-z0-9]+)$/);
   if (invite) return { page: "invite", token: invite[1] };
+  const reset = path.match(/^\/reset\/([A-Za-z0-9_-]+)$/);
+  if (reset) return { page: "reset", token: reset[1] };
   return { page: "projects" };
 }
 
@@ -163,6 +166,7 @@ export function App() {
   const [setupRequired, setSetupRequired] = useState(false);
   const [signup, setSignup] = useState(false);
   const [ownerEmail, setOwnerEmail] = useState(false);
+  const [passwordReset, setPasswordReset] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -200,10 +204,11 @@ export function App() {
     } catch {
       setToken("");
     }
-    const status = await api.authStatus().catch(() => ({ setup_required: false, signup: false, owner_email: false }));
+    const status = await api.authStatus().catch(() => ({ setup_required: false, signup: false, owner_email: false, password_reset: false }));
     setSetupRequired(status.setup_required);
     setSignup(status.signup);
     setOwnerEmail(status.owner_email);
+    setPasswordReset(!!status.password_reset);
     setMe(false);
   };
 
@@ -224,6 +229,7 @@ export function App() {
 
   if (me === null) return null;
   if (route.page === "invite") return <AcceptInvite token={route.token} onSignedIn={() => void load()} />;
+  if (route.page === "reset") return <ResetPassword token={route.token} onSignedIn={() => void load()} />;
   if (!me) {
     // The hosted cloud greets visitors with its front page; the sign-in
     // and sign-up forms are a click away.
@@ -239,6 +245,7 @@ export function App() {
         setupRequired={setupRequired}
         signup={signup}
         ownerEmail={ownerEmail}
+        passwordReset={passwordReset}
         initialView={path === "/signup" ? "signup" : "signin"}
         onHome={config?.mode === "cloud" ? () => navigate("/") : undefined}
         onSignedIn={signedIn}

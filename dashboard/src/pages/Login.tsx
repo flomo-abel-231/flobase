@@ -37,6 +37,7 @@ export function Login({
   ownerEmail,
   initialView = "signin",
   onHome,
+  passwordReset = false,
 }: {
   onSignedIn: () => void;
   setupRequired: boolean;
@@ -44,8 +45,9 @@ export function Login({
   ownerEmail: boolean;
   initialView?: "signin" | "signup";
   onHome?: () => void;
+  passwordReset?: boolean;
 }) {
-  const [view, setView] = useState<"signin" | "signup" | "token">(initialView);
+  const [view, setView] = useState<View>(initialView);
   return (
     <>
       {onHome && (
@@ -53,10 +55,20 @@ export function Login({
           ← FloBase home
         </button>
       )}
-      <LoginView view={view} setView={setView} onSignedIn={onSignedIn} setupRequired={setupRequired} signup={signup} ownerEmail={ownerEmail} />
+      <LoginView
+        view={view}
+        setView={setView}
+        onSignedIn={onSignedIn}
+        setupRequired={setupRequired}
+        signup={signup}
+        ownerEmail={ownerEmail}
+        passwordReset={passwordReset}
+      />
     </>
   );
 }
+
+type View = "signin" | "signup" | "token" | "forgot";
 
 function LoginView({
   view,
@@ -65,22 +77,26 @@ function LoginView({
   setupRequired,
   signup,
   ownerEmail,
+  passwordReset,
 }: {
-  view: "signin" | "signup" | "token";
-  setView: (v: "signin" | "signup" | "token") => void;
+  view: View;
+  setView: (v: View) => void;
   onSignedIn: () => void;
   setupRequired: boolean;
   signup: boolean;
   ownerEmail: boolean;
+  passwordReset: boolean;
 }) {
   if (setupRequired) return <Setup onSignedIn={onSignedIn} ownerEmail={ownerEmail} />;
   if (view === "token") return <TokenLogin onSignedIn={onSignedIn} onBack={() => setView("signin")} />;
   if (view === "signup" && signup) return <SignUp onSignedIn={onSignedIn} onBack={() => setView("signin")} />;
+  if (view === "forgot" && passwordReset) return <ForgotPassword onBack={() => setView("signin")} />;
   return (
     <PasswordLogin
       onSignedIn={onSignedIn}
       onUseToken={signup ? undefined : () => setView("token")}
       onSignUp={signup ? () => setView("signup") : undefined}
+      onForgot={passwordReset ? () => setView("forgot") : undefined}
     />
   );
 }
@@ -147,10 +163,12 @@ function PasswordLogin({
   onSignedIn,
   onUseToken,
   onSignUp,
+  onForgot,
 }: {
   onSignedIn: () => void;
   onUseToken?: () => void;
   onSignUp?: () => void;
+  onForgot?: () => void;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -192,6 +210,11 @@ function PasswordLogin({
             required
           />
         </Field>
+        {onForgot && (
+          <button type="button" onClick={onForgot} className="-mt-2 body-sm self-end text-brand underline-offset-2 hover:underline">
+            Forgot password?
+          </button>
+        )}
         {error && <Notice tone="danger">{error}</Notice>}
         <Button variant="primary" type="submit" disabled={busy || !email.trim() || !password}>
           {busy ? "Signing in…" : "Sign in"}
@@ -392,6 +415,111 @@ export function AcceptInvite({ token, onSignedIn }: { token: string; onSignedIn:
         </form>
       )}
       {!invite && error && <Notice tone="danger">{error}</Notice>}
+    </Frame>
+  );
+}
+
+// ForgotPassword asks for an email address and sends a reset link to it.
+// The answer reads the same whether or not the address has an account.
+function ForgotPassword({ onBack }: { onBack: () => void }) {
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api.recoverPassword(email.trim());
+      setSent(res.message);
+    } catch (err) {
+      setError(message(err, "Cannot reach the control plane."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Frame title="Reset your password" subtitle="Enter your account's email and we'll send you a link to choose a new password.">
+      {sent ? (
+        <p className="body-sm text-ink">{sent} Check your spam folder if it doesn't arrive in a few minutes.</p>
+      ) : (
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <Field label="Email">
+            <Input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+          </Field>
+          {error && <Notice tone="danger">{error}</Notice>}
+          <Button variant="primary" type="submit" disabled={busy || !email.trim()}>
+            {busy ? "Sending…" : "Send reset link"}
+          </Button>
+        </form>
+      )}
+      <button type="button" onClick={onBack} className="body-sm self-start text-brand underline-offset-2 hover:underline">
+        Back to sign in
+      </button>
+    </Frame>
+  );
+}
+
+// ResetPassword is where a reset link lands: choose a new password, which
+// signs out every other session and signs in here.
+export function ResetPassword({ token, onSignedIn }: { token: string; onSignedIn: () => void }) {
+  const [email, setEmail] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api
+      .resetInfo(token)
+      .then((r) => setEmail(r.email))
+      .catch((err) => setError(message(err, "Cannot reach the control plane.")));
+  }, [token]);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (password !== confirm) {
+      setError("The two passwords are not the same.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await api.setForgottenPassword(token, password);
+      window.location.hash = "#/";
+      onSignedIn();
+    } catch (err) {
+      setError(message(err, "Cannot reach the control plane."));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Frame title="Choose a new password" subtitle={email ? `For ${email}. You'll be signed out everywhere else.` : "Checking the link…"}>
+      {email && (
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <input type="email" autoComplete="username" value={email} readOnly hidden />
+          <Field label="New password" hint="At least 8 characters.">
+            <Input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus />
+          </Field>
+          <Field label="Repeat it">
+            <Input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+          </Field>
+          {error && <Notice tone="danger">{error}</Notice>}
+          <Button variant="primary" type="submit" disabled={busy || password.length < 8 || !confirm}>
+            {busy ? "Saving…" : "Set password and sign in"}
+          </Button>
+        </form>
+      )}
+      {!email && error && <Notice tone="danger">{error}</Notice>}
+      {!email && error && (
+        <a href="#/login" className="body-sm self-start text-brand underline-offset-2 hover:underline">
+          Back to sign in
+        </a>
+      )}
     </Frame>
   );
 }
